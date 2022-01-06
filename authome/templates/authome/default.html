@@ -59,7 +59,9 @@
     {{body | safe}}
     <div style="display:none">
     <div id="real_content_div">
+    {% block real_content %}
     {{content|safe}}
+    {% endblock real_content %}
     </div>
     </div>
     
