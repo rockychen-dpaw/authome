@@ -1,0 +1,26 @@
+{% extends "authome/default.html" %}
+
+
+{% block title%}Email sign in -- Please input email address{% endblock title%}
+
+{% block real_content %}
+<form method="post" action="{% url 'authome:auth_local_send_code' %}" id="siginform">
+{% csrf_token %}
+<div class="intro">
+   <h2>
+    Sign in with your email address
+   </h2>
+</div>
+<div class="entry">
+  <div class="entry-item">
+    <label for="signInName">
+      Email Address
+    </label>
+    <input type="email" title="Please enter a valid email address." id="id_email" name="email" pattern="^[a-zA-Z0-9.!#$%&amp;’'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$" placeholder="Email Address" value="" aria-label="Email Address">
+   </div>
+   <div class="buttons">
+      <button id="next" type="submit" form="signinform">Send Verification Code</button>
+   </div>
+</div>
+</form>
+{% endblock real_content %}

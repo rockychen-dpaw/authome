@@ -1,6 +1,6 @@
 import os
 
-from authome.utils import env, get_digest_function
+from .utils import env, get_digest_function
 from datetime import timedelta
 import dj_database_url
 
@@ -60,9 +60,6 @@ TOTP_ALGORITHM,TOTP_DIGEST = get_digest_function(TOTP_ALGORITHM)
 # Azure AD settings
 AZUREAD_AUTHORITY = env('AZUREAD_AUTHORITY', 'https://login.microsoftonline.com')
 AZUREAD_RESOURCE = env('AZUREAD_RESOURCE', '00000002-0000-0000-c000-000000000000')
-
-SOCIAL_AUTH_AZUREAD_OAUTH2_KEY = env('AZUREAD_CLIENTID', 'clientid')
-SOCIAL_AUTH_AZUREAD_OAUTH2_SECRET = env('AZUREAD_SECRETKEY', 'secret')
 
 SOCIAL_AUTH_AZUREAD_B2C_OAUTH2_BASE_URL = env('AZUREAD_B2C_BASE_URL', 'baseurl')
 SOCIAL_AUTH_AZUREAD_B2C_OAUTH2_KEY = env('AZUREAD_B2C_CLIENTID', 'clientid')
@@ -221,6 +218,8 @@ AUTO_SIGNOUT_DELAY_SECONDS=env('AUTO_SIGNOUT_DELAY_SECONDS',default=10)
 
 
 AUTH_CHECKING_THRESHOLD_TIME=env('AUTH_CHECKING_THRESHOLD_TIME',default=50) * 1000 #in milliseconds, should be less than 1000
+
+SWITCH_TO_MAGIC_AUTH=env('SWITCH_TO_MAGIC_AUTH',default=False) #Switch to magic auth to login in user if azure ad b2c does not work.
 
 # Logging settings - log to stdout/stderr
 LOGGING = {

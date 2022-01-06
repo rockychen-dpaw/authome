@@ -1,4 +1,4 @@
-from django.http import HttpResponseRedirect, HttpResponse, HttpResponseForbidden, JsonResponse
+from django.http import HttpResponseRedirect, HttpResponse, HttpResponseForbidden, JsonResponse,HttpResponseNotAllowed
 from django.template.response import TemplateResponse
 from django.contrib.auth import logout
 from django.urls import reverse
@@ -451,6 +451,14 @@ def auth_basic(request):
             #return basi auth required response if any exception occured.
             return BASIC_AUTH_REQUIRED_RESPONSE
 
+def auth_local(request):
+    domain = request.headers.get("x-upstream-server-name") or utils.get_redirect_domain(request) or request.get_host()
+    if request.method == "GET":
+        return domain_related_page(request,"signin_inputemail",domain,"Sign in with email address")
+    elif request.method == "POST":
+        return domain_related_page(request,"signin_inputemail",domain,"Sign in with email address")
+    else:
+        return  HttpResponseNotAllowed(["GET","POST"])
 
 def logout_view(request):
     """
@@ -700,10 +708,21 @@ def adb2c_view(request,template,**kwargs):
     """
     domain = request.GET.get('domain', None)
     container_class = request.GET.get('class')
+    title = request.GET.get('title', "Signup or Signin")
+    return domain_related_page(request,template,domain,title,container_class=container_class)
+
+def domain_related_page(request,template,domain,title,container_class=None):
+    """
+    View method for path '/sso/xxx.html'
+    Used by b2c to provide the customized page layout
+    three optional url parameters
+      domain: the app domain used to provide customization per app
+      container_class: the css class used in page layout, it should be the same css class as the css class used in builtin css copied from b2c default template.
+      title: page title, defaule is "Signup or Singin"
+    """
     if not container_class:
         container_class = "{}_container".format(template)
     logger.debug("Request the customized authentication interface for domain({}) and container_class({})".format(domain,container_class))
-    title = request.GET.get('title', "Signup or Signin")
     userflow = models.CustomizableUserflow.get_userflow(domain)
 
     _init_userflow_pagelayout(request,userflow,container_class)
