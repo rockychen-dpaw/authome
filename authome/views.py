@@ -647,6 +647,7 @@ def logout_view(request):
     #get post logout url
     post_logout_url = get_post_b2c_logout_url(request,encode=False)
     #logout the django user session
+    session_key = request.session.session_key
     logout(request)
     #redirect to backend to logout backend
     if backend_logout_url:
@@ -1345,6 +1346,13 @@ def status(request):
         r = get_redis_connection(name) 
         connection_pool = r.connection_pool
         redis_servers[name] = "server:{} , connections:{} , max connections: {}".format(settings.CACHE_SERVER,get_active_redis_connections(name),settings.CACHE_SERVER_OPTIONS.get("CONNECTION_POOL_KWARGS",{}).get("max_connections","Not Configured"))
+
+    if settings.CACHES.get("pubsub"):
+        name = "pubsub"
+        r = get_redis_connection(name) 
+        connection_pool = r.connection_pool
+        redis_servers[name] = "server:{} , connections:{} , max connections: {}".format(settings.CACHE_SERVER,get_active_redis_connections(name),settings.CACHE_SERVER_OPTIONS.get("CONNECTION_POOL_KWARGS",{}).get("max_connections","Not Configured"))
+
 
     content["memorycache"] = cache.status
     content = json.dumps(content)

@@ -11,6 +11,11 @@ from django.contrib.sessions.backends.base import (
 from django.core.cache import caches
 from django.utils.crypto import  get_random_string
 
+from . import utils
+from .cache import cache
+
+from . import performance
+
 logger = logging.getLogger(__name__)
 
 if settings.SESSION_CACHES == 0:
@@ -44,7 +49,7 @@ def convert_decimal(number,decimal):
 
     return converted_number
         
-class _AbstractSessionStore(SessionBase):
+class __AbstractSessionStore(SessionBase):
     cache_key_prefix = "{}-session:".format(settings.CACHE_KEY_PREFIX) if settings.CACHE_KEY_PREFIX else "session:"
 
     def _get_cache(self,session_key=None):
@@ -68,6 +73,8 @@ class _AbstractSessionStore(SessionBase):
 
 
     def load(self):
+        if self._session_key is None:
+            return {}
         try:
             session_data = self._get_cache().get(self.cache_key)
         except Exception:
@@ -123,6 +130,67 @@ class _AbstractSessionStore(SessionBase):
     @classmethod
     def clear_expired(cls):
         pass
+
+if settings.CACHE_SESSION_IN_MEMORY:
+    class __AbstractCachedSessionStore(__AbstractSessionStore):
+        """
+        Cache authenticated session in memory to increase performance
+        """
+
+        @property
+        def is_authenticated(self):
+            return True if self.get(USER_SESSION_KEY) else False
+
+        def delete(self, session_key=None):
+            if session_key is None:
+                if self.session_key is None:
+                    return
+                session_key = self.session_key
+
+            super().delete(session_key)
+            if self.is_authenticated:
+                #authenticated session
+                cache.del_session(session_key)
+                utils.publish_event("session",session_key)
+
+        def save(self, must_create=False):
+            super().save(must_create=must_create)
+            if self.is_authenticated:
+                #is a authenticated session, send event to other processes
+                seconds = self.get_expiry_age()
+                td = utils.get_timedelta(seconds)
+                cache.set_session(self.session_key,self._session,timezone.now() + td)
+                if not must_create:
+                    #save a existing session, send notify to others server processes
+                    cache.set_session(self.session_key,self._session,timezone.now() + td)
+                    utils.publish_event("session",self.session_key)
+
+
+        def load(self):
+            if self.session_key is None:
+                #session key is None, empty session
+                return {}
+                
+            session_data = cache.get_session(self.session_key)
+            if session_data is None:
+                session_data = super().load()
+                if session_data and session_data.get(USER_SESSION_KEY):
+                    #is a authentiated session, cache it in memory
+                    seconds = self. _get_cache().ttl(self.cache_key)
+                    if seconds is None:
+                        cache.set_session(self.session_key,session_data,None)
+                    elif seconds > 0:
+                        if seconds > settings.SESSION_CACHE_AGE:
+                            seconds = settings.SESSION_CACHE_AGE
+                        expireat = timezone.now() + utils.get_timedelta(seconds)
+                        cache.set_session(self.session_key,session_data,expireat)
+
+            return session_data
+    _AbstractSessionStore = __AbstractCachedSessionStore
+else:
+    _AbstractSessionStore = __AbstractSessionStore
+
+
 
 if settings.SYNC_MODE:
     class _BaseSessionStore(_AbstractSessionStore):

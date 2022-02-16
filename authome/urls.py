@@ -66,10 +66,16 @@ handler400 = views.handler400
 
 #load cache
 try:
-    cache.refresh_authorization_cache(True)
+    cache.refresh_usergroups(True)
 except:
     if not settings.IGNORE_LOADING_ERROR:
-        raise Exception("Failed to load UserGroup and UserGroupAuthorization cache during server startingFailed to load UserGroup and UserGroupAuthorization cache during server starting.{}".format(traceback.format_exc()))
+        raise Exception("Failed to load UserGroup cache during server startingFailed to load UserGroup and UserGroupAuthorization cache during server starting.{}".format(traceback.format_exc()))
+    
+try:
+    cache.refresh_usergroupauthorization(True)
+except:
+    if not settings.IGNORE_LOADING_ERROR:
+        raise Exception("Failed to load UserGroupAuthorization cache during server startingFailed to load UserGroup and UserGroupAuthorization cache during server starting.{}".format(traceback.format_exc()))
     
 try:
     cache.refresh_idp_cache(True)
@@ -82,4 +88,4 @@ try:
 except:
     if not settings.IGNORE_LOADING_ERROR:
         raise Exception("Failed to load CustomizableUserflow cache during server startingFailed to load UserGroup and UserGroupAuthorization cache during server starting.{}".format(traceback.format_exc()))
-    
+

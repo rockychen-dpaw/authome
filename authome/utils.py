@@ -7,13 +7,76 @@ import re
 import base64
 import qrcode
 import logging
+import socket
+from datetime import datetime,timedelta
+import psutil
 
 from django.utils import timezone
 from django.contrib.auth import REDIRECT_FIELD_NAME
 
+from django_redis import get_redis_connection
+
 __version__ = '1.0.0'
 
 logger = logging.getLogger(__name__)
+
+
+_serverid = None
+def get_serverid():
+    """
+    Return the id of the  process
+    """
+    global _serverid
+    if not _serverid:
+        processcreatetime = timezone.make_aware(datetime.fromtimestamp(psutil.Process(os.getpid()).create_time())).strftime("%Y-%m-%d %H:%M:%S.%f")
+        _serverid = "{}.{}.{}".format(socket.gethostname().replace(" ","-").replace("@","_"),processcreatetime,os.getpid())
+    return _serverid
+
+_pubsub_client = None
+def publish_event(channel,message):
+    """
+    Publish event to redis channel
+    """
+    global _pubsub_client
+    if not _pubsub_client:
+        pubsub_client = get_redis_connection("pubsub")
+    try_times = 0
+    while True:
+        try:
+            serverid = get_serverid()
+            message = "{}@{}".format(serverid,message)
+            subscribers = pubsub_client.publish(channel,message)
+            logger.debug("{} : Publish a {} event(message={} subscribers = {}) .".format(serverid,channel,message,subscribers))
+            return subscribers
+        except:
+            try_times += 1
+            if try_times < 3:
+                continue
+            else:
+                raise
+
+def get_timedelta(seconds):
+    """
+    Convert seconds to timedelta object
+    """
+    days = int(seconds / 86400)
+    seconds = seconds % 86400
+    return timedelta(days=days,seconds=seconds)
+ 
+def to_mapkey(data):
+    if isinstance(data,list):
+        return tuple([to_mapkey(o) for o in data])
+    elif isinstance(data,tuple):
+        if any(isinstance(o,(dict,list)) for o in data):
+            return tuple([to_mapkey(o) for o in data])
+        else:
+            return data
+    elif isinstance(data,dict):
+        keys = [k for k in data.keys()]
+        keys.sort()
+        return tuple([(k,to_mapkey(data[k])) for k in keys])
+    else:
+        return data
 
 def _convert(key,value, default=None, required=False, value_type=None,subvalue_type=None):
     if value_type is None:

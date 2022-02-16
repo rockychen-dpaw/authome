@@ -12,40 +12,80 @@ from django.db.models import Q
 from django.contrib.admin.views.main import ChangeList
 from django.urls import reverse
 from django.template.response import TemplateResponse
+from django.urls import path
+from django.http import HttpResponseRedirect
 
 from . import models
 from . import forms
+from . import utils
 
 logger = logging.getLogger(__name__)
 
+if settings.DEPLOY_CONFIG_REALTIME:
+    class CacheableChangeList(ChangeList):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            if self.model.is_outdated():
+                msg = "{}(Cache is outdated, please deploy the configuration.latest refresh time is {})"
+            else:
+                msg = "{}(Cache is up-to-date, latest refresh time is {})"
 
-class CacheableChangeList(ChangeList):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        logger.debug("Refresh the model({}) data if required".format(self.model))
-        self.model.refresh_cache_if_required()
+            self.title = mark_safe(msg.format(
+                self.title,
+                timezone.localtime(self.model.get_cachetime()).strftime("%Y-%m-%d %H:%M:%S") if self.model.get_cachetime() else "None"
+            ))
 
-        if self.model.is_outdated():
-            self.title = "{}(Cache is outdated, latest refresh time is {}, next refresh time is {})".format(
+
+    class CacheableMixin(object):
+        change_list_template = "authome/change_config_list.html"
+        def get_changelist(self, request, **kwargs):
+            """
+            Return the ChangeList class for use on the changelist page.
+            """
+            return CacheableChangeList
+    
+        def get_urls(self):
+            urls = super().get_urls()
+            urls.insert(0,path('deploy/', self.deploy, name="{}_{}_deploy".format(self.model._meta.app_label,self.model._meta.model_name)))
+   
+            
+            return urls
+
+        def deploy(self,request):
+            try:
+                subscribers = utils.publish_event("model",self.model._meta.model_name)
+                self.message_user(request, "{} servers have received the deploy request.".format(subscribers))
+            except:
+                self.message_user(request, "Failed to deploy the configuration".format(str(ex)),level=messages.ERROR)
+
+            url_name = 'admin:{}_{}_changelist'.format(self.model._meta.app_label,self.model._meta.model_name)
+            url = reverse(url_name)
+            return HttpResponseRedirect(url)
+
+
+else:
+    class CacheableChangeList(ChangeList):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.model.refresh_cache_if_required()
+            if self.model.is_outdated():
+                msg = "{}(Cache is outdated, latest refresh time is {}, next refresh time is {})"
+            else:
+                msg = "{}(Cache is up-to-date, latest refresh time is {}, next refresh time is {})"
+
+            self.title = msg.format(
                 self.title,
                 timezone.localtime(self.model.get_cachetime()).strftime("%Y-%m-%d %H:%M:%S") if self.model.get_cachetime() else "None",
                 timezone.localtime(self.model.get_next_refreshtime()).strftime("%Y-%m-%d %H:%M:%S") if self.model.get_next_refreshtime() else "None"
             )
-        else:
-            self.title = "{}(Cache is up-to-date, latest refresh time is {}, next refresh time is {})".format(
-                self.title,
-                timezone.localtime(self.model.get_cachetime()).strftime("%Y-%m-%d %H:%M:%S") if self.model.get_cachetime() else "None",
-                timezone.localtime(self.model.get_next_refreshtime()).strftime("%Y-%m-%d %H:%M:%S") if self.model.get_next_refreshtime() else "None"
-            )
 
 
-class CacheableListTitleMixin(object):
-    def get_changelist(self, request, **kwargs):
-        """
-        Return the ChangeList class for use on the changelist page.
-        """
-        return CacheableChangeList
-
+    class CacheableMixin(object):
+        def get_changelist(self, request, **kwargs):
+            """
+            Return the ChangeList class for use on the changelist page.
+            """
+            return CacheableChangeList
 
 class DatetimeMixin(object):
     def _modified(self,obj):
@@ -204,16 +244,15 @@ class SystemUserAdmin(UserGroupsMixin,DatetimeMixin,auth.admin.UserAdmin):
 
 
 @admin.register(models.UserGroup)
-class UserGroupAdmin(CacheableListTitleMixin,DatetimeMixin,admin.ModelAdmin):
+class UserGroupAdmin(CacheableMixin,DatetimeMixin,admin.ModelAdmin):
     list_display = ('name','groupid','parent_group','users','excluded_users','identity_provider','_modified','_created')
     readonly_fields = ('_modified',)
     fields = ('name','groupid','parent_group','users','excluded_users','identity_provider','_modified')
     ordering = ('parent_group','name',)
     form = forms.UserGroupForm
 
-
 @admin.register(models.UserGroupAuthorization)
-class UserGroupAuthorizationAdmin(CacheableListTitleMixin,DatetimeMixin,admin.ModelAdmin):
+class UserGroupAuthorizationAdmin(CacheableMixin,DatetimeMixin,admin.ModelAdmin):
     list_display = ('usergroup','domain','paths','excluded_paths','_modified','_created')
     readonly_fields = ('_modified',)
     fields = ('usergroup','domain','paths','excluded_paths','_modified')
@@ -222,7 +261,7 @@ class UserGroupAuthorizationAdmin(CacheableListTitleMixin,DatetimeMixin,admin.Mo
 
 
 #@admin.register(models.UserAuthorization)
-class UserAuthorizationAdmin(CacheableListTitleMixin,DatetimeMixin,admin.ModelAdmin):
+class UserAuthorizationAdmin(CacheableMixin,DatetimeMixin,admin.ModelAdmin):
     list_display = ('user','domain','paths','excluded_paths','_modified','_created')
     readonly_fields = ('_modified',)
     fields = ('user','domain','paths','excluded_paths','_modified')
@@ -465,7 +504,7 @@ def {}(self,request,queryset):
 
 
 @admin.register(models.IdentityProvider)
-class IdentityProviderAdmin(CacheableListTitleMixin,DatetimeMixin,admin.ModelAdmin):
+class IdentityProviderAdmin(CacheableMixin,DatetimeMixin,admin.ModelAdmin):
     list_display = ('idp','name','userflow','logout_method','logout_url','_modified','_created')
     readonly_fields = ('idp','_modified','_created')
     form = forms.IdentityProviderForm
@@ -474,7 +513,7 @@ class IdentityProviderAdmin(CacheableListTitleMixin,DatetimeMixin,admin.ModelAdm
 
 
 @admin.register(models.CustomizableUserflow)
-class CustomizableUserflowAdmin(CacheableListTitleMixin,DatetimeMixin,admin.ModelAdmin):
+class CustomizableUserflowAdmin(CacheableMixin,DatetimeMixin,admin.ModelAdmin):
     list_display = ('domain','fixed','default','profile_edit','mfa_set',"mfa_reset",'password_reset','_modified','_created')
     readonly_fields = ('_modified','_created')
     form = forms.CustomizableUserflowForm

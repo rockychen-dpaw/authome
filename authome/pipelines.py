@@ -29,7 +29,7 @@ _max_age = 100 * 365 * 24 * 60 * 60
 def check_idp_and_usergroup(backend,details, user=None,*args, **kwargs):
     request = backend.strategy.request
 
-    logger.debug("Data returned from B2C.\n{}".format( "\n".join( sorted(["{} = {}".format(k,v) for k,v in kwargs['response'].items()]) )))
+    #logger.debug("Data returned from B2C.\n{}".format( "\n".join( sorted(["{} = {}".format(k,v) for k,v in kwargs['response'].items()]) )))
 
     email = details.get("email")
 
@@ -110,6 +110,7 @@ def user_details(strategy, details, user=None, *args, **kwargs):
     # provider. Update on some attributes is disabled by default, for
     # example username and id fields. It's also possible to disable update
     # on fields defined in SOCIAL_AUTH_PROTECTED_USER_FIELDS.
+    print("user = {}".format(details))
     for name, value in details.items():
         if value is None or not hasattr(user, name) or name in protected:
             continue

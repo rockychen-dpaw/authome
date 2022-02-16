@@ -1,4 +1,9 @@
 import logging
+import signal
+import traceback
+import os
+import atexit
+import time
 from datetime import datetime, timedelta
 from collections import OrderedDict
 
@@ -6,7 +11,9 @@ from django.conf import settings
 from django.utils import timezone
 from django.core.cache import caches
 
-from .utils import format_datetime
+from django_redis import get_redis_connection
+
+from . import utils 
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +28,7 @@ if settings.CACHE_SERVER:
     get_defaultcache = lambda :caches['default']
 else:
     get_defaultcache = lambda :None
+
 
 
 defaultcache = get_defaultcache()
@@ -139,7 +147,66 @@ class HourListTaskRunable(TaskRunable):
         return self._next_time
 
 
-class MemoryCache(object):
+if settings.CACHE_USER_IN_MEMORY or settings.CACHE_SESSION_IN_MEMORY or settings.DEPLOY_CONFIG_REALTIME:
+    import threading
+
+    class PubSubWorkerThread(threading.Thread):
+        def __init__(self, pubsub,channels):
+            super().__init__(name="PubSubWorkerThread",daemon=True)
+            self.pubsub = pubsub
+            self._running = threading.Event()
+            self.channels = channels
+
+        def run(self):
+            if self._running.is_set():
+                return
+            self._running.set()
+            while self._running.is_set():
+                try:
+                    self.pubsub.ping()
+                    if not self.pubsub.subscribed:
+                        raise Exception("Not subscribed")
+                except:
+                    while True:
+                        try:
+                            self.pubsub.subscribe(**self.channels)
+                            logger.info("Successfully subscribe the  redis channels({}) again".format(",".join([k for k in self.channels.keys()])))
+                            break
+                        except Exception as ex:
+                            logger.error("Failed to subscribe the  redis channels({}).{}".format(",".join([k for k in self.channels.keys()]),str(ex)))
+                            #wait 1 seconds try again.
+                            time.sleep(1)
+                try:
+                    logger.debug("Start to listen the  redis channels({}).".format(",".join([k for k in self.channels.keys()])))
+                    for msg in self.pubsub.listen():
+                        pass
+                except Exception as e:
+                    pass
+            logger.debug("Stop to listen redis channels.")
+    
+        def stop(self):
+            # trip the flag so the run loop exits. the run loop will
+            # close the pubsub connection, which disconnects the socket
+            # and returns the connection to the pool.
+            if not self.pubsub.connection:
+                self.join()
+                return
+
+            logger.debug("Begin to shutdown PubSubWorkderThread")
+            self._running.clear()
+            self.pubsub.close()
+            self.join()
+            logger.debug("End to shutdown PubSubWorkderThread")
+
+    def signal_handler(s,exit_handler):
+        _original_handler = signal.getsignal(s)
+        def _handler(signum, frame):
+            exit_handler()
+            _original_handler(signum,frame)
+        return _handler
+
+            
+class _MemoryCache(object):
     """
     Local memory cache
     """
@@ -152,13 +219,6 @@ class MemoryCache(object):
         self._public_group = None
         self._usergrouptree_size = None
         self._usergrouptree_ts = None
-
-        """
-        #model UserAuthorization cache
-        self._userauthorization = None
-        self._userauthorization_size = None
-        self._userauthorization_ts = None
-        """
 
         #model UserGroupAuthorization cache
         self._usergroupauthorization = None
@@ -195,17 +255,138 @@ class MemoryCache(object):
         self._groups_map = {}
         self._emailgroups_ts = None
 
-        #The runable task to clean authenticaton map and basic authenticaton map
-        self._auth_cache_clean_time = HourListTaskRunable("authentication cache",settings.AUTH_CACHE_CLEAN_HOURS)
+        channels = self.get_channels()
 
-        #The runable task to check UserGroup, UserAuthorization and UserGroupAuthorication cache
-        self._authorization_cache_check_time = IntervalTaskRunable("authorization cache",settings.AUTHORIZATION_CACHE_CHECK_INTERVAL) if settings.AUTHORIZATION_CACHE_CHECK_INTERVAL > 0 else HourListTaskRunable("authorization cache",settings.AUTHORIZATION_CACHE_CHECK_HOURS)
+        if channels:
+            redis_client = get_redis_connection('pubsub')
+            redis_pubsub = redis_client.pubsub()
 
-        #The runable task to check CustomizableUserflow cache
-        self._userflow_cache_check_time = IntervalTaskRunable("customizable userflow cache",settings.USERFLOW_CACHE_CHECK_INTERVAL) if settings.USERFLOW_CACHE_CHECK_INTERVAL > 0 else HourListTaskRunable("customizable userflow cache",settings.USERFLOW_CACHE_CHECK_HOURS)
+            self.subscriber = PubSubWorkerThread(redis_pubsub,channels)
 
-        #The runable task to check IdentityProvider cache
-        self._idp_cache_check_time = IntervalTaskRunable("idp cache",settings.IDP_CACHE_CHECK_INTERVAL) if settings.IDP_CACHE_CHECK_INTERVAL > 0 else HourListTaskRunable("idp cache",settings.IDP_CACHE_CHECK_HOURS)
+            self.subscriber.start()
+            atexit.register(self.subscriber.stop)
+            signal.signal(signal.SIGTERM, signal_handler(signal.SIGTERM,self.subscriber.stop))
+            signal.signal(signal.SIGINT, signal_handler(signal.SIGINT,self.subscriber.stop))
+            logger.debug("pid={}".format(os.getpid()))
+    
+
+    def get_channels(self):
+        channels = {}
+        if settings.CACHE_USER_IN_MEMORY:
+            self._user_map = OrderedDict()
+            channels["user"] = self._del_user
+
+        if settings.CACHE_SESSION_IN_MEMORY:
+            self._session_map = OrderedDict()
+            channels["session"] = self._del_session
+
+        if settings.DEPLOY_CONFIG_REALTIME:
+            channels["model"] = self._model_changed
+
+        return channels
+
+    def _model_changed(self,msg):
+        try:
+            data = msg["data"]
+            publisher,modelname = data.split("@")
+            if modelname == "usergroup":
+                self.refresh_usergroups()
+            elif modelname == "usergroupauthorization":
+                self.refresh_usergroupauthorization()
+            elif modelname == "customizableuserflow":
+                self.refresh_userflow_cache()
+            elif modelname == "identityprovider":
+                self.refresh_idp_cache()
+            else:
+                logger.error("Model changed event is not supported".format(modelname))
+
+        except Exception as ex:
+            logger.error("{} : Model changed event({}) - Failed to refresh model data;{}".format(utils.get_serverid(),data,str(ex)))
+
+    def get_user(self,userid):
+        data = self._user_map.get(userid)
+        if data:
+            if data[1] and data[1] < timezone.now():
+                #expired
+                del self._user_map[userid]
+                return None
+            else:
+                return data[0]
+        else:
+            return None
+    def set_user(self,user,expireat=None):
+        self._user_map[user.id] = (user,expireat)
+        self._enforce_maxsize("user map",self._user_map,settings.USER_CACHE_SIZE)
+
+    def del_user(self,userid):
+        try:
+            del self._user_map[userid]
+            logger.debug("{} : Remove user({}) from memory cache".format(utils.get_serverid(),userid))
+        except:
+            pass
+
+    def _del_user(self,msg):
+        try:
+            data = msg["data"]
+            publisher,userid = data.split("@",1)
+            userid = int(userid)
+            if publisher == utils.get_serverid():
+                logger.debug("{} : This user event({}) is sent by itself, ignore.".format(utils.get_serverid(),data))
+                pass
+            else:
+                if userid in self._user_map:
+                    del self._user_map[userid]
+                    logger.debug("{} : User event({}) - Remove outdated user({}) from memory cache".format(utils.get_serverid(),data,userid))
+                else:
+                    logger.debug("{} : User event({}) - The outdated User({}) is not in memory cache".format(utils.get_serverid(),data,userid))
+                    pass
+
+        except Exception as ex:
+            logger.error("{} : User event({}) - Failed to remove outdated user({}) from memory cache;{}".format(utils.get_serverid(),data,userid,str(ex)))
+
+
+    def get_session(self,session_key):
+        data = self._session_map.get(session_key)
+        if data:
+            if data[1] and data[1] < timezone.now():
+                #expired
+                del self._session_map[session_key]
+                return None
+            else:
+                return data[0]
+        else:
+            return None
+
+    def set_session(self,session_key,session,expireat=None):
+        self._session_map[session_key] = (session,expireat)
+        self._enforce_maxsize("session map",self._session_map,settings.SESSION_CACHE_SIZE)
+        logger.debug("Cache the session({}) with exipre time({}) in memory".format(session_key,expireat))
+
+    def del_session(self,session_key):
+        try:
+            del self._session_map[session_key]
+            logger.debug("{} : Remove session({}) from memory cache".format(utils.get_serverid(),session_key))
+        except:
+            pass
+
+    def _del_session(self,msg):
+        try:
+            data = msg["data"]
+            publisher,session_key = data.split("@")
+            if publisher == utils.get_serverid():
+                logger.debug("{} : This session event({}) is sent by itself, ignore.".format(utils.get_serverid(),data))
+                pass
+            else:
+                if session_key in self._session_map:
+                    del self._session_map[session_key]
+                    logger.debug("{} : Session event({}) - Remove outdated session({}) from memory cache".format(utils.get_serverid(),data,session_key))
+                else:
+                    logger.debug("{} : Session event({}) - The outdated session({}) is not in memory cache".format(utils.get_serverid(),data,session_key))
+                    pass
+
+        except Exception as ex:
+            logger.error("{} : Session event({}) - Failed to remove outdated session({}) from memory cache;{}".format(utils.get_serverid(),data,session_key,str(ex)))
+
 
     @property
     def usergrouptree(self):
@@ -225,12 +406,10 @@ class MemoryCache(object):
 
     @property
     def dbca_group(self):
-        self.refresh_authorization_cache()
         return self._dbca_group
 
     @property
     def public_group(self):
-        self.refresh_authorization_cache()
         return self._public_group
 
     @usergrouptree.setter
@@ -239,19 +418,6 @@ class MemoryCache(object):
             self._usergrouptree,self._usergroups,self._public_group,self._dbca_group,self._usergrouptree_size,self._usergrouptree_ts = value
         else:
             self._usergrouptree,self._usergroups,self._public_group,self._dbca_group,self._usergrouptree_size,self._usergrouptree_ts = None,None,None,None,None,None
-
-    """
-    @property
-    def userauthorization(self):
-        return self._userauthorization
-
-    @userauthorization.setter
-    def userauthorization(self,value):
-        if value:
-            self._userauthorization,self._userauthorization_size,self._userauthorization_ts = value
-        else:
-            self._userauthorization,self._userauthorization_size,self._userauthorization_ts = None,None,None
-    """
 
     @property
     def usergroupauthorization(self):
@@ -269,11 +435,6 @@ class MemoryCache(object):
             self._usergroupauthorization,self._usergroupauthorization_size,self._usergroupauthorization_ts = None,None,None
 
     def get_authorizations(self,groupskey,domain):
-        """
-        During authorization, this method is the first method to be invoked, and then the methods 'userauthrizations','usergrouptree' and 'usergroupauthorization' will be invoked if required.
-        So only call method 'refresh_authorization_cache' in this method and ignore in other methods 'userauthrizations','usergrouptree' and 'usergroupauthorization'.
-        """
-        self.refresh_authorization_cache()
         return self._user_authorization_map.get((groupskey,domain))
 
     def set_authorizations(self,groupskey,domain,authorizations):
@@ -282,7 +443,6 @@ class MemoryCache(object):
 
     @property
     def idps(self):
-        self.refresh_idp_cache()
         return self._idps
 
     @idps.setter
@@ -294,7 +454,6 @@ class MemoryCache(object):
 
     @property
     def userflows(self):
-        self.refresh_userflow_cache()
         return self._userflows
 
     def get_userflow(self,domain=None):
@@ -302,7 +461,6 @@ class MemoryCache(object):
         Get the userflow configured for that domain, if can't find, return default userflow
         if domain is None, return default userflow
         """
-        self.refresh_userflow_cache()
         if domain:
             userflow = self._userflows_map.get(domain)
             if not userflow:
@@ -397,7 +555,6 @@ class MemoryCache(object):
         self._auth_map[key] = [response,now,now + settings.AUTH_CACHE_EXPIRETIME]
 
         self._enforce_maxsize("auth map",self._auth_map,settings.AUTH_CACHE_SIZE)
-        self.clean_auth_cache()
 
     def update_auth(self,key,response):
         """
@@ -443,7 +600,6 @@ class MemoryCache(object):
         self._basic_auth_map[key[0]] = [response,key[1],timezone.now() + settings.AUTH_BASIC_CACHE_EXPIRETIME]
 
         self._enforce_maxsize("token auth map",self._basic_auth_map,settings.BASIC_AUTH_CACHE_SIZE)
-        self.clean_auth_cache()
 
     def update_basic_auth(self,key,response):
         """
@@ -501,18 +657,10 @@ class MemoryCache(object):
                 index -= 1
             logger.debug("Remove expired datas from cache {0}".format(name))
 
-    def clean_auth_cache(self,force=False):
-        if self._auth_cache_clean_time.can_run() or force:
-            self._auth_map.clear()
-            self._auth_map_ts = timezone.now()
-
-            self._basic_auth_map.clear()
-            self._basic_auth_map_ts = timezone.now()
-
     def refresh_usergroups(self,force=False):
         from .models import UserGroupChange,UserGroup
         if (force or not self._usergrouptree or UserGroupChange.is_changed()):
-            logger.debug("UserGroup was changed, clean cache usergroupptree and user_requests_map")
+            logger.debug("UserGroup was changed, Reload it." if self._usergrouptree else "Load UserGroup data")
             self._user_authorization_map.clear()
             self._user_authorization_map_ts = timezone.now()
             self._email_groups_map.clear()
@@ -524,55 +672,40 @@ class MemoryCache(object):
                 self._groupskey_map.clear()
             #reload group trees
             UserGroup.refresh_cache()
-
-
-    """
-    def refresh_userauthorization(self,force=False):
-        from .models import UserAuthorizationChange,UserAuthorization
-        if (force or self._userauthorization is None or UserAuthorizationChange.is_changed()):
-            logger.debug("UserAuthorization was changed, clean cache userauthorization and user_requests_map")
-            self._user_authorization_map.clear()
-            self._user_authorization_map_ts = timezone.now()
-            #reload user requests
-            UserAuthorization.refresh_cache()
-    """
+        else :
+            logger.debug("UserGroup is not changed, no need to reload.")
+            pass
 
     def refresh_usergroupauthorization(self,force=False):
         from .models import UserGroupAuthorizationChange,UserGroupAuthorization
         if (force or not self._usergroupauthorization or UserGroupAuthorizationChange.is_changed()):
-            logger.debug("UserGroupAuthorization was changed, clean cache usergroupauthorization and user_requests_map")
+            logger.debug("UserGroupAuthorization was changed, Reload it." if self._usergroupauthorization else "Load UserGroupAuthorization data")
             self._user_authorization_map.clear()
             self._user_authorization_map_ts = timezone.now()
             #reload user group requests
             UserGroupAuthorization.refresh_cache()
-
-    def refresh_authorization_cache(self,force=False):
-        if self._authorization_cache_check_time.can_run() or force:
-            self.refresh_usergroups(force)
-            #self.refresh_userauthorization(force)
-            self.refresh_usergroupauthorization(force)
+        else:
+            logger.debug("UserGroupAuthorization is not changed, no need to reload")
+            pass
 
     def refresh_idp_cache(self,force=False):
-        if not self._idps:
-            from .models import IdentityProvider
-            self._idp_cache_check_time.can_run()
+        from .models import IdentityProviderChange,IdentityProvider
+        if force or not self._idps or  IdentityProviderChange.is_changed():
+            logger.debug("IdentityProvider was changed, Reload it." if self._idps else "Load IdentityProvider data")
             IdentityProvider.refresh_cache()
-        elif self._idp_cache_check_time.can_run() or force:
-            from .models import IdentityProviderChange,IdentityProvider
-            if IdentityProviderChange.is_changed():
-                IdentityProvider.refresh_cache()
-
+        else:
+            logger.debug("IdentityProvider is not changed, no need to reload.")
+            pass
+    
 
     def refresh_userflow_cache(self,force=False):
-        if not self._userflows:
-            from .models import CustomizableUserflow
-            self._userflow_cache_check_time.can_run()
+        from .models import CustomizableUserflowChange,CustomizableUserflow
+        if force or not self._userflows or CustomizableUserflowChange.is_changed():
+            logger.debug("CustomizableUserflow was changed,Reload it." if self._userflows else "Load CustomizableUserflow data")
             CustomizableUserflow.refresh_cache()
-        elif self._userflow_cache_check_time.can_run() or force:
-            from .models import CustomizableUserflowChange,CustomizableUserflow
-            if CustomizableUserflowChange.is_changed():
-                CustomizableUserflow.refresh_cache()
-
+        else:
+            logger.debug("CustomizableUserflow is not changed, no need to reload.")
+            pass
 
     @property
     def status(self):
@@ -582,50 +715,43 @@ class MemoryCache(object):
             "groupsize":None if self.usergroups is None else len(self.usergroups),
             "dbcagroup":str(self.dbca_group),
             "publicgroup":str(self.public_group),
-            "latest_refresh_time":format_datetime(self._usergrouptree_ts),
-            "next_check_time":format_datetime(self._authorization_cache_check_time.next_runtime)
+            "latest_refresh_time":utils.format_datetime(self._usergrouptree_ts),
         }
     
         result["UserGroupAuthorization"] = {
             "usergroupauthorization_size":None if self.usergroupauthorization is None else len(self.usergroupauthorization),
-            "latest_refresh_time":format_datetime(self._usergroupauthorization_ts),
-            "next_check_time":format_datetime(self._authorization_cache_check_time.next_runtime)
+            "latest_refresh_time":utils.format_datetime(self._usergroupauthorization_ts),
         }
     
         result["CustomizableUserflow"] = {
             "userflow_size":None if self.userflows is None else len(self.userflows),
             "userflowmap_size":None if self._userflows_map is None else len(self._userflows_map),
             "defaultuserflow":str(self._defaultuserflow),
-            "latest_refresh_time":format_datetime(self._userflows_ts),
-            "next_check_time":format_datetime(self._userflow_cache_check_time.next_runtime)
+            "latest_refresh_time":utils.format_datetime(self._userflows_ts),
         }
     
     
         result["IdentityProvider"] = {
             "identityprovider_size":None if self.idps is None else len(self.idps),
-            "latest_refresh_time":format_datetime(self._idps_ts),
-            "next_check_time":format_datetime(self._idp_cache_check_time.next_runtime)
+            "latest_refresh_time":utils.format_datetime(self._idps_ts),
         }
     
         result["userauthorizationmap"] = {
             "authorizationmap_size":None if self._user_authorization_map is None else len(self._user_authorization_map),
             "authorizationmap_maxsize":settings.AUTHORIZATION_CACHE_SIZE,
-            "latest_clean_time":format_datetime(self._user_authorization_map_ts),
-            "next_check_time":format_datetime(self._authorization_cache_check_time.next_runtime)
+            "latest_clean_time":utils.format_datetime(self._user_authorization_map_ts),
         }
     
         result["userauthenticationmap"] = {
             "authenticationmap_size":None if self._auth_map is None else len(self._auth_map),
             "authenticationmap_maxsize":settings.AUTH_CACHE_SIZE,
-            "latest_clean_time":format_datetime(self._auth_map_ts),
-            "next_clean_time":format_datetime(self._auth_cache_clean_time.next_runtime)
+            "latest_clean_time":utils.format_datetime(self._auth_map_ts),
         }
     
         result["basicauthmap"] = {
             "basicauthmap_size":None if self._basic_auth_map is None else len(self._basic_auth_map),
             "basicauthmap_maxsize":settings.BASIC_AUTH_CACHE_SIZE,
-            "latest_clean_time":format_datetime(self._basic_auth_map_ts),
-            "next_clean_time":format_datetime(self._auth_cache_clean_time.next_runtime)
+            "latest_clean_time":utils.format_datetime(self._basic_auth_map_ts),
         }
     
         result["usergrouplist"] = {
@@ -635,8 +761,7 @@ class MemoryCache(object):
             "publicusergroupsmap_size":None if self._public_email_groups_map is None else len(self._public_email_groups_map),
             "publicusergroupsmap_maxsize":settings.PUBLIC_EMAIL_GROUPS_CACHE_SIZE,
             "groupsmap_size":None if self._groups_map is None else len(self._groups_map),
-            "latest_clean_time":format_datetime(self._emailgroups_ts),
-            "next_check_time":format_datetime(self._authorization_cache_check_time.next_runtime)
+            "latest_clean_time":utils.format_datetime(self._emailgroups_ts),
         }
     
         return result
@@ -705,4 +830,156 @@ class MemoryCache(object):
     
         return (True,"ok")
 
-cache = MemoryCache()
+if settings.AUTH_CACHE_CLEAN_HOURS:
+    class _MemoryCacheWithCleanAuth(_MemoryCache):
+        """
+        Local memory cache
+        """
+        def __init__(self):
+            super().__init__()
+    
+            #The runable task to clean authenticaton map and basic authenticaton map
+            self._auth_cache_clean_time = HourListTaskRunable("authentication cache",settings.AUTH_CACHE_CLEAN_HOURS)
+    
+    
+        def set_auth(self,key,response):
+            """
+            cache the auth response content and return the populated http response
+            """
+            super().set_auth(key,response)
+            self.clean_auth_cache()
+    
+        def set_basic_auth(self,key,response):
+            """
+            cache the auth token response content and return the populated http response
+            """
+            super().set_basic_auth(key,response)
+            self.clean_auth_cache()
+    
+        def clean_auth_cache(self,force=False):
+            if self._auth_cache_clean_time.can_run() or force:
+                self._auth_map.clear()
+                self._auth_map_ts = timezone.now()
+    
+                self._basic_auth_map.clear()
+                self._basic_auth_map_ts = timezone.now()
+    
+        @property
+        def status(self):
+            result = super().status
+            result["userauthenticationmap"]["next_clean_time"] = utils.format_datetime(self._auth_cache_clean_time.next_runtime)
+        
+            result["basicauthmap"]["next_clean_time"] = utils.format_datetime(self._auth_cache_clean_time.next_runtime)
+        
+            return result
+
+    MemoryCache = _MemoryCacheWithCleanAuth
+else:
+    MemoryCache = _MemoryCache
+
+if not settings.DEPLOY_CONFIG_REALTIME:
+    class RepeatedlySyncedMemoryCache(MemoryCache):
+        """
+        Local memory cache
+        """
+        def __init__(self):
+            super().__init__()
+    
+            #The runable task to check UserGroup, UserAuthorization and UserGroupAuthorication cache
+            self._authorization_cache_check_time = IntervalTaskRunable("authorization cache",settings.AUTHORIZATION_CACHE_CHECK_INTERVAL) if settings.AUTHORIZATION_CACHE_CHECK_INTERVAL > 0 else HourListTaskRunable("authorization cache",settings.AUTHORIZATION_CACHE_CHECK_HOURS)
+    
+            #The runable task to check CustomizableUserflow cache
+            self._userflow_cache_check_time = IntervalTaskRunable("customizable userflow cache",settings.USERFLOW_CACHE_CHECK_INTERVAL) if settings.USERFLOW_CACHE_CHECK_INTERVAL > 0 else HourListTaskRunable("customizable userflow cache",settings.USERFLOW_CACHE_CHECK_HOURS)
+    
+            #The runable task to check IdentityProvider cache
+            self._idp_cache_check_time = IntervalTaskRunable("idp cache",settings.IDP_CACHE_CHECK_INTERVAL) if settings.IDP_CACHE_CHECK_INTERVAL > 0 else HourListTaskRunable("idp cache",settings.IDP_CACHE_CHECK_HOURS)
+    
+        @_MemoryCache.dbca_group.getter
+        def dbca_group(self):
+            self.refresh_authorization_cache()
+            return self._dbca_group
+    
+        @_MemoryCache.public_group.getter
+        def public_group(self):
+            self.refresh_authorization_cache()
+            return self._public_group
+    
+        def get_authorizations(self,groupskey,domain):
+            """
+            During authorization, this method is the first method to be invoked, and then the methods 'userauthrizations','usergrouptree' and 'usergroupauthorization' will be invoked if required.
+            So only call method 'refresh_authorization_cache' in this method and ignore in other methods 'userauthrizations','usergrouptree' and 'usergroupauthorization'.
+            """
+            self.refresh_authorization_cache()
+            return self._user_authorization_map.get((groupskey,domain))
+    
+        @_MemoryCache.idps.getter
+        def idps(self):
+            self.refresh_idp_cache()
+            return self._idps
+    
+        @_MemoryCache.userflows.getter
+        def userflows(self):
+            self.refresh_userflow_cache()
+            return self._userflows
+    
+        def get_userflow(self,domain=None):
+            """
+            Get the userflow configured for that domain, if can't find, return default userflow
+            if domain is None, return default userflow
+            """
+            self.refresh_userflow_cache()
+            return super().get_userflow(domain=domain)
+    
+    
+        def refresh_authorization_cache(self,force=False):
+            if self._authorization_cache_check_time.can_run() or force:
+                self.refresh_usergroups(force)
+                self.refresh_usergroupauthorization(force)
+    
+        def refresh_idp_cache(self,force=False):
+            from .models import IdentityProviderChange,IdentityProvider
+            if not self._idps:
+                logger.debug("Load IdentityProvider data")
+                self._idp_cache_check_time.can_run()
+                IdentityProvider.refresh_cache()
+            elif self._idp_cache_check_time.can_run() or force:
+                if IdentityProviderChange.is_changed():
+                    logger.debug("IdentityProvider was changed, Reload it.")
+                    IdentityProvider.refresh_cache()
+                else:
+                    logger.debug("IdentityProvider is not changed, no need to reload")
+                    pass
+    
+    
+        def refresh_userflow_cache(self,force=False):
+            from .models import CustomizableUserflowChange,CustomizableUserflow
+            if not self._userflows:
+                logger.debug("Load CustomizableUserflow data")
+                self._userflow_cache_check_time.can_run()
+                CustomizableUserflow.refresh_cache()
+            elif self._userflow_cache_check_time.can_run() or force:
+                if CustomizableUserflowChange.is_changed():
+                    logger.debug("CustomizableUserflow was changed, Reload it.")
+                    CustomizableUserflow.refresh_cache()
+                else:
+                    logger.debug("CustomizableUserflow is not changed, no need to reload")
+                    pass
+    
+    
+        @property
+        def status(self):
+            result = super().status
+            result["UserGroup"]["next_check_time"] = utils.format_datetime(self._authorization_cache_check_time.next_runtime)
+            result["UserGroupAuthorization"]["next_check_time"] = utils.format_datetime(self._authorization_cache_check_time.next_runtime)
+            result["CustomizableUserflow"]["next_check_time"] = utils.format_datetime(self._userflow_cache_check_time.next_runtime)
+            result["IdentityProvider"]["next_check_time"] = utils.format_datetime(self._idp_cache_check_time.next_runtime)
+            result["userauthorizationmap"]["next_check_time"] = utils.format_datetime(self._authorization_cache_check_time.next_runtime)
+            result["usergrouplist"]["next_check_time"] = utils.format_datetime(self._authorization_cache_check_time.next_runtime)
+        
+            return result
+
+    cache = RepeatedlySyncedMemoryCache()
+else:
+    
+    cache = MemoryCache()
+

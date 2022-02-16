@@ -1,6 +1,7 @@
 import os
+from datetime import timedelta
 
-from .utils import env, get_digest_function
+from .utils import env, get_digest_function,get_timedelta
 from datetime import timedelta
 import dj_database_url
 
@@ -25,7 +26,6 @@ AUTH_USER_MODEL = 'authome.User'
 
 # Application definition
 INSTALLED_APPS = [
-    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'social_django',
     'authome',
+    'django.contrib.admin',
 ]
 
 AUTHENTICATION_BACKENDS = (
@@ -289,6 +290,7 @@ def GET_CACHE_CONF(server,options={}):
             "OPTIONS": options
         }
 
+DJANGO_REDIS_CONNECTION_FACTORY="authome.redis.ConnectionFactory"
 SYNC_MODE = env("SYNC_MODE",True)
 CACHE_SERVER = env("CACHE_SERVER")
 CACHE_SERVER_OPTIONS = env("CACHE_SERVER_OPTIONS",default={})
@@ -319,7 +321,7 @@ if CACHE_SERVER or CACHE_SESSION_SERVER or CACHE_USER_SERVER:
             SESSION_CACHE_ALIAS = "session"
         else:
             for i in range(0,SESSION_CACHES) :
-                CACHES["session{}".format(i)] = GET_CACHE_CONF(CACHE_SESSION_SERVER[i],CACHE_USER_SERVER_OPTIONS)
+                CACHES["session{}".format(i)] = GET_CACHE_CONF(CACHE_SESSION_SERVER[i],CACHE_SESSION_SERVER_OPTIONS)
 
             SESSION_CACHE_ALIAS = lambda sessionkey:"session{}".format((ord(sessionkey[-1]) + ord(sessionkey[-2])) % SESSION_CACHES)
         SESSION_ENGINE = "authome.cachesessionstoredebug" if DEBUG else  "authome.cachesessionstore"
@@ -332,11 +334,11 @@ if CACHE_SERVER or CACHE_SESSION_SERVER or CACHE_USER_SERVER:
         CACHE_USER_SERVER = [s.strip() for s in CACHE_USER_SERVER.split(",") if s and s.strip()]
         USER_CACHES = len(CACHE_USER_SERVER)
         if USER_CACHES == 1:
-            CACHES["user"] = GET_CACHE_CONF(CACHE_USER_SERVER[0])
+            CACHES["user"] = GET_CACHE_CONF(CACHE_USER_SERVER[0],CACHE_USER_SERVER_OPTIONS)
             USER_CACHE_ALIAS = "user"
         else:
             for i in range(0,USER_CACHES) :
-                CACHES["user{}".format(i)] = GET_CACHE_CONF(CACHE_USER_SERVER[i])
+                CACHES["user{}".format(i)] = GET_CACHE_CONF(CACHE_USER_SERVER[i],CACHE_USER_SERVER_OPTIONS)
 
             USER_CACHE_ALIAS = lambda userid:"user{}".format(abs(userid) % USER_CACHES)
         if CACHE_KEY_PREFIX:
@@ -356,8 +358,24 @@ if CACHE_SERVER or CACHE_SESSION_SERVER or CACHE_USER_SERVER:
     USER_CACHE_TIMEOUT = env("USER_CACHE_TIMEOUT",86400)
     if USER_CACHE_TIMEOUT <= 0:
         USER_CACHE_TIMEOUT = 86400
+    
+    USER_CACHE_TIMEOUT_TIMEDELTA = get_timedelta(USER_CACHE_TIMEOUT)
 
     STAFF_CACHE_TIMEOUT = env("STAFF_CACHE_TIMEOUT",86400 * 14)
     if STAFF_CACHE_TIMEOUT <= 0:
         STAFF_CACHE_TIMEOUT = None
+
+SESSION_CACHE_SIZE = env('SESSION_CACHE_SIZE',default=1000)
+SESSION_CACHE_AGE = env('SESSION_CACHE_AGE',default=86400)
+USER_CACHE_SIZE = env('USER_CACHE_SIZE',default=1000)
+if CACHE_SERVER and CACHE_SERVER.lower().startswith('redis'):
+    CACHE_SESSION_IN_MEMORY = env('CACHE_SESSION_IN_MEMORY',default=False)
+    CACHE_USER_IN_MEMORY = env('CACHE_USER_IN_MEMORY',default=False)
+    DEPLOY_CONFIG_REALTIME = env('DEPLOY_CONFIG_REALTIME',default=False)
+    if CACHE_SESSION_IN_MEMORY or CACHE_USER_IN_MEMORY or DEPLOY_CONFIG_REALTIME:
+        CACHES['pubsub'] = GET_CACHE_CONF(CACHE_SERVER,{"CONNECTION_POOL_KWARGS": {"max_connections": 2, "retry_on_timeout": True,"decode_responses":True}})
+else:
+    CACHE_SESSION_IN_MEMORY = False
+    CACHE_USER_IN_MEMORY = False
+    DEPLOY_CONFIG_REALTIME = False
 

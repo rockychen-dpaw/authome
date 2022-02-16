@@ -15,6 +15,7 @@ from django.contrib.auth.models import AbstractUser
 import hashlib
 
 from .cache import cache,get_defaultcache,get_usercache
+from . import utils
 
 logger = logging.getLogger(__name__)
 
@@ -1694,15 +1695,22 @@ class UserListener(object):
     def post_save_user(sender,instance,created,**kwargs):
         if not created:
             usercache = get_usercache(instance.id)
-            if usercache.get(settings.GET_USER_KEY(instance.id)):
-                usercache.set(settings.GET_USER_KEY(instance.id),instance,settings.STAFF_CACHE_TIMEOUT if instance.is_staff else settings.USER_CACHE_TIMEOUT)
+            userkey = settings.GET_USER_KEY(instance.id)
+            if usercache.get(userkey):
+                usercache.set(userkey,instance,settings.STAFF_CACHE_TIMEOUT if instance.is_staff else settings.USER_CACHE_TIMEOUT)
                 logger.debug("Cache the latest data of the user({1}<{0}>) to usercache".format(instance.id,instance.email))
+                cache.set_user(instance,timezone.now() + settings.USER_CACHE_TIMEOUT_TIMEDELTA)
+                utils.publish_event("user",instance.id)
 
     @staticmethod
     @receiver(post_delete, sender=User)
     def post_delete_user(sender,instance,**kwargs):
         usercache = get_usercache(instance.id)
-        usercache.delete(settings.GET_USER_KEY(instance.id))
+        userkey = settings.GET_USER_KEY(instance.id)
+        if usercache.delete(userkey):
+            utils.publish_event("user",instance.id)
+        cache.del_user(instance.id)
+
 
 class UserGroupListener(object):
     @receiver(pre_delete, sender=UserGroup)
