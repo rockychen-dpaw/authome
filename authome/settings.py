@@ -465,6 +465,7 @@ PREVIOUS_SESSION_CACHE_ALIAS=None
 
 GET_DEFAULT_CACHE_KEY = lambda key:key
 GET_USER_KEY = lambda userid:str(userid)
+GET_USEREMAIL_KEY = lambda useremail:useremail
 GET_USERTOKEN_KEY = lambda userid:"T{}".format(userid)
 
 SESSION_CACHES = 0

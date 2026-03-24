@@ -20,7 +20,7 @@ from django.contrib import messages
 
 import hashlib
 
-from ..cache import cache,get_defaultcache,get_usercache
+from ..cache import cache,get_defaultcache,get_usercache,get_usercache_by_email
 from .. import signals
 from .. import utils
 from .debugmodels import DebugLog
@@ -2029,12 +2029,21 @@ class UserListener(object):
                 usercache.set(settings.GET_USER_KEY(instance.id),instance,settings.STAFF_CACHE_TIMEOUT if instance.is_staff else settings.USER_CACHE_TIMEOUT)
                 logger.debug("Cache the latest data of the user({1}<{0}>) to usercache".format(instance.id,instance.email))
 
+            usercache = get_usercache_by_email(instance.email)
+            if usercache and usercache.get(settings.GET_USEREMAIL_KEY(instance.email)):
+                usercache.set(settings.GET_USEREMAIL_KEY(instance.email),instance,settings.STAFF_CACHE_TIMEOUT if instance.is_staff else settings.USER_CACHE_TIMEOUT)
+                logger.debug("Cache the latest data of the user({1}<{0}>) to usercache".format(instance.id,instance.email))
+
     @staticmethod
     @receiver(post_delete, sender=User)
     def post_delete_user(sender,instance,**kwargs):
         usercache = get_usercache(instance.id)
         if usercache:
             usercache.delete(settings.GET_USER_KEY(instance.id))
+
+        usercache = get_usercache_by_email(instance.email)
+        if usercache:
+            usercache.delete(settings.GET_USEREMAIL_KEY(instance.email))
 
 class UserTokenListener(object):
     @staticmethod

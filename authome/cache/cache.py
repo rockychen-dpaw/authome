@@ -17,10 +17,14 @@ logger = logging.getLogger(__name__)
 
 if settings.USER_CACHES == 0:
     get_usercache = lambda userid:None
+    get_usercache_by_email = lambda useremail:None
 elif settings.USER_CACHES == 1:
     get_usercache = lambda userid:caches[settings.USER_CACHE_ALIAS]
+    get_usercache_by_email = lambda useremail:caches[settings.USER_CACHE_ALIAS]
 else:
     get_usercache = lambda userid:caches[settings.USER_CACHE_ALIAS(userid)]
+    #simply use the first char to distribute the data in caches
+    get_usercache_by_email = lambda useremail:caches[settings.USER_CACHE_ALIAS(ord(useremail[0]))]
 
 if settings.CACHE_SERVER:
     get_defaultcache = lambda :caches['default']

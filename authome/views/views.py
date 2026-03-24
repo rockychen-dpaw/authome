@@ -43,7 +43,7 @@ from ..cache import cache, get_defaultcache,get_usercache
 from .. import utils
 from .. import emails
 from ..exceptions import HttpResponseException,UserDoesNotExistException,PolicyNotConfiguredException
-from ..patch import load_user,anonymoususer,load_usertoken
+from ..patch import load_user,load_user_by_email,anonymoususer,load_usertoken
 from ..sessionstore import SessionStore
 from authome.models import DebugLog
 
@@ -165,6 +165,7 @@ basic_auth_re = re.compile('^Basic\\s+([a-zA-Z0-9+/=]+)$' )
 def _parse_basic(basic_auth):
     """
     Parse the basic header to a tuple(username,password)
+    username is a email address, already turn it to lower case.
     Throw excepton if can't find the basic auth data
     """
     if not basic_auth:
@@ -175,7 +176,9 @@ def _parse_basic(basic_auth):
     basic_auth_raw = base64.b64decode(match.group(1)).decode('utf-8')
     if ':' not in basic_auth_raw:
         raise Exception('Missing password')
-    return basic_auth_raw.split(":", 1)
+    data = basic_auth_raw.split(":", 1)
+    data[0] = data[0].lower()
+    return data
 
 def check_authorization(request,useremail,domain=None,path=None):
     """
@@ -656,13 +659,7 @@ def _auth_basic(request,not_authentiated_response_factory=basic_auth_required_re
 
     #not found the cached reponse, not authenticated before.
     try:
-        performance.start_processingstep("fetch_user_with_email_from_db")
-        try:
-            user = models.User.objects.get(email__iexact=useremail)
-        finally:
-            performance.end_processingstep("fetch_user_with_email_from_db")
-            pass
-
+        user = load_user_by_email(useremail)
         if request.user.is_authenticated and user.email == request.user.email:
             #the user of the token auth is the same user as the authenticated session user;use the session authentication data directly
             return  _auth(request)
