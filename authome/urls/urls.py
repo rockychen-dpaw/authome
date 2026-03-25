@@ -73,11 +73,11 @@ urlpatterns = [
 
     path('sso/', include('social_django.urls', namespace='social')),
     path('admin/', admin_urls),
-    path('check_captcha/', views.check_captcha, name='check_captcha'),
-    path('check_captcha/<slug:kind>', views.check_captcha, name='check_captcha2'),
-    path('check_auth_and_captcha/', views.check_auth_and_captcha, name='check_auth_and_captcha'),
-    path('check_auth_and_captcha/<slug:kind>', views.check_auth_and_captcha, name='check_auth_and_captcha2'),
-    path('captcha/<slug:captchadir>/<str:captchafile>', views.captcha, name='captcha'),
+    path('sso/check_captcha/', views.check_captcha, name='check_captcha'),
+    path('sso/check_captcha/<slug:kind>', views.check_captcha, name='check_captcha2'),
+    path('sso/check_auth_and_captcha/', views.check_auth_and_captcha, name='check_auth_and_captcha'),
+    path('sso/check_auth_and_captcha/<slug:kind>', views.check_auth_and_captcha, name='check_auth_and_captcha2'),
+    path('sso/captcha/<slug:captchadir>/<str:captchafile>', views.captcha, name='captcha'),
 
     path("favicon.ico",RedirectView.as_view(url="{}images/favicon.ico".format(settings.STATIC_URL)))
 ]

@@ -464,6 +464,10 @@ def auth_captcha(request):
     """
     Only captcha is required
     """
+    allowed_requests = int(request.headers.get("x-allowed-requests-after-captcha",1))
+    if allowed_requests <= 0:
+        allowed_requests = 1
+
     res = _auth(request)
     if res and res.status_code == 403:
         #authenticated but not authorized.
@@ -471,31 +475,48 @@ def auth_captcha(request):
 
     requestpath = utils.get_request_path(request)
     key = "captcha_{}".format(requestpath)
+    v = request.session.get(key)
+    if isinstance(v,str):
+        v = None
 
-    if request.session.get(key) == "T":
-        #captcha checked
-        del request.session[key]
+    if v is None: 
+        #captcha required
+        request.session[key] = allowed_requests * -1
+        return auth_required_response_factory(request)
+    elif v == allowed_requests * -1:
+        #captcha required
+        request.session.modified = False
+        return auth_required_response_factory(request)
+    elif v < 0 :
+        #captcha required
+        request.session[key] = allowed_requests * -1
+        return auth_required_response_factory(request)
+    elif v == 0:
+        #no allowed requests
+        #captcha required
+        request.session[key] = CAPTCHA_REQUIRED * -1
+        return auth_required_response_factory(request)
+    else:
+        if v == 1:
+            del request.session[key]
+        else:
+            request.session[key] = v - 1
         if res:
             #authenticated, but can be authorized or not authorized
             return res
         else:
             #not authenticated
             return SUCCEED_RESPONSE
-    else:
-        #captcha required
-        if request.session.get(key) == "R":
-            #captcha requirement flag is already set
-            request.session.modified = False
-        else:
-            request.session[key] = "R"
-
-        return auth_required_response_factory(request)
 
 @csrf_exempt
 def auth_and_captcha(request):
     """
     Both auth and captcha are required
     """
+    allowed_requests = int(request.headers.get("x-allowed-requests-after-captcha",1))
+    if allowed_requests <= 0:
+        allowed_requests = 1
+
     res = _auth(request)
     if res:
         if res.status_code == 403:
@@ -505,20 +526,31 @@ def auth_and_captcha(request):
         #authenticated, but can be authorized or not authorized
         requestpath = utils.get_request_path(request)
         key = "captcha_{}".format(requestpath)
+        v = request.session.get(key)
 
-        if request.session.get(key) == "T":
-            #captcha checked
-            del request.session[key]
-            return res
-        else:
+        if v is None: 
             #captcha required
-            if request.session.get(key) == "R":
-                #captcha requirement flag is already set
-                request.session.modified = False
-            else:
-                request.session[key] = "R"
-
+            request.session[key] = allowed_requests * -1
             return auth_required_response_factory(request)
+        elif v == allowed_requests * -1:
+            #captcha required
+            request.session.modified = False
+            return auth_required_response_factory(request)
+        elif v < 0 :
+            #captcha required
+            request.session[key] = allowed_requests * -1
+            return auth_required_response_factory(request)
+        elif v == 0:
+            #no allowed requests
+            #captcha required
+            request.session[key] = CAPTCHA_REQUIRED * -1
+            return auth_required_response_factory(request)
+        else:
+            if v == 1:
+                del request.session[key]
+            else:
+                request.session[key] = v - 1
+            return res
     else:
         #not authenticated
         return auth_required_response_factory(request)
@@ -1150,15 +1182,17 @@ def check_captcha(request,kind=settings.CAPTCHA_DEFAULT_KIND,auth=False):
 
     next_url_domain = utils.get_domain(next_url)
     key = "captcha_{}{}".format(*utils.get_domain_path(next_url))
-    filekey = "captchafile_{}{}".format(*utils.get_domain_path(next_url))
     if key not in request.session:
         #not forward from next_url, not allowed to generate the captcha
         #redirect to next_url
         return HttpResponseRedirect(next_url)
-
-    if request.session[key] == "T":
+    val = request.session[key]
+    if val > 0:
         #already checked the captcha, redirect to next_url
         return HttpResponseRedirect(next_url)
+
+    codekey = "captchacode_{}{}".format(*utils.get_domain_path(next_url))
+    filekey = "captchafile_{}{}".format(*utils.get_domain_path(next_url))
 
     page_layout,extracss = _get_userflow_pagelayout(request,next_url_domain)
 
@@ -1175,9 +1209,9 @@ def check_captcha(request,kind=settings.CAPTCHA_DEFAULT_KIND,auth=False):
 
     now = timezone.localtime()
 
-    if not request.get_host().endswith(settings.SESSION_COOKIE_DOMAIN):
-        #post request is sent from other domain, invalid, redirect to auth2 to let user login to session cookie domain first
-        return HttpResponse(status=404)
+    #if not request.get_host().endswith(settings.SESSION_COOKIE_DOMAIN):
+    #    #request is sent from other domain, invalid
+    #    return HttpResponse(status=404)
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -1192,20 +1226,20 @@ def check_captcha(request,kind=settings.CAPTCHA_DEFAULT_KIND,auth=False):
             utils.remove_file(outfile)
 
         code,outfile = _generate_captcha(kind)
-        request.session[key] = code
+        request.session[codekey] = code
         request.session[filekey] = outfile
         context["outfile"] = outfile[captchabasedirlen:]
         return TemplateResponse(request,imagefile if kind == "image" else audiofile,context=context)
     elif action == "check":
         code = request.POST.get("code").upper()
-        saved_code = request.session.get(key)
+        saved_code = request.session.get(codekey)
         if not saved_code or len(saved_code) != settings.CAPTCHA_LEN:
             outfile = request.session.get(filekey)
             if outfile:
                 utils.remove_file(outfile)
 
             code,outfile = _generate_captcha(kind)
-            request.session[key] = code
+            request.session[codekey] = code
             request.session[filekey] = outfile
             context["outfile"] = outfile[captchabasedirlen:]
             context["messages"] = [("error","Code is expired!")]
@@ -1214,7 +1248,7 @@ def check_captcha(request,kind=settings.CAPTCHA_DEFAULT_KIND,auth=False):
             outfile = request.session.get(filekey)
             if not outfile:
                 code,outfile = _generate_captcha(kind)
-                request.session[key] = code
+                request.session[codekey] = code
                 request.session[filekey] = outfile
                 context["outfile"] = outfile[captchabasedirlen:]
                 context["messages"] = [("error","Code is expired.")]
@@ -1225,24 +1259,25 @@ def check_captcha(request,kind=settings.CAPTCHA_DEFAULT_KIND,auth=False):
             return TemplateResponse(request,imagefile if kind == "image" else audiofile,context=context)
         else:
             #code matched
-            request.session[key] = "T"
+            request.session[key] = val * -1
             outfile = request.session.get(filekey)
             if outfile:
                 #remote the  file of the matched code
                 utils.remove_file(outfile)
             del request.session[filekey]
+            del request.session[codekey]
 
             return HttpResponseRedirect(next_url)
     else:
         #request is sent from session cookie domain, show the page to input email
-        savedcode = request.session.get(key)
+        savedcode = request.session.get(codekey)
         outfile = request.session.get(filekey)
         if outfile:
             #remove the expired captcha file
             utils.remove_file(outfile)
         #generate a new captcha
         code,outfile = _generate_captcha(kind)
-        request.session[key] = code
+        request.session[codekey] = code
         request.session[filekey] = outfile
         context["outfile"] = outfile[captchabasedirlen:]
         return TemplateResponse(request,imagefile if kind == "image" else audiofile,context=context)

@@ -144,6 +144,15 @@ def get_request_path(request=None):
     except:
         return None
 
+def get_request_method(request=None):
+    try:
+        if not request:
+            request = _process_data.request
+
+        return request.headers.get("x-upstream-request-method") or request.method
+    except:
+        return None
+
 def get_request_pathinfo(request=None):
     try:
         if not request:
