@@ -753,7 +753,7 @@ else:
 
 # Sentry settings
 project = tomllib.load(open(os.path.join(BASE_DIR, "pyproject.toml"), "rb"))
-VERSION_NO = project["tool"]["poetry"]["version"]
+VERSION_NO = project["project"]["version"]
 SENTRY_DSN = env("SENTRY_DSN", None)
 SENTRY_ENVIRONMENT = env("SENTRY_ENVIRONMENT", None)
 SENTRY_SAMPLE_RATE = env("SENTRY_SAMPLE_RATE", 1.0)  # Error sampling rate
