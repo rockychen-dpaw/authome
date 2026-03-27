@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.template.response import TemplateResponse
 
 from ..cache import cache
-from .views import defaultcache,get_absolute_url,_get_userflow_pagelayout,forbidden
+from .views import defaultcache,_get_userflow_pagelayout,forbidden
 from .. import utils
 from .. import models
 from authome.models import DebugLog
@@ -27,7 +27,7 @@ def forbidden_tcontrol(request):
     """
     tcontrol = request.GET.get("tcontrol")
     if tcontrol:
-        url = get_absolute_url(request.GET.get("path") or request.get_full_path(),request.get_host())
+        url = utils.get_absolute_url(request.GET.get("path") or request.get_full_path(),request.get_host())
         parsed_url = utils.parse_url(url)
         domain = parsed_url["domain"]
         path = parsed_url["path"]

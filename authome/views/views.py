@@ -139,6 +139,13 @@ def _get_next_url(request):
     if not next_url:
         #get next url from session
         next_url = request.session.get(REDIRECT_FIELD_NAME)
+        if next_url:
+            domain = utils.get_domain(next_url)
+            if domain != request.get_host():
+                #the domain of cached next url is not equal with the current request host.
+                #don't use the cached next url
+                next_url = None
+
 
     if next_url:
         #found next url, build its absolute url
@@ -146,7 +153,7 @@ def _get_next_url(request):
         if not domain:
             #no domain in next_url, use request host as domain
             domain = request.get_host()
-        next_url = get_absolute_url(next_url,domain)
+        next_url = utils.get_absolute_url(next_url,domain)
         logger.debug("Found next url '{}'".format(next_url))
     else:
         #next url is not found, use default next url
@@ -211,21 +218,6 @@ def check_authorization(request,useremail,domain=None,path=None):
     else:
         logger.debug("User({}) can't access https://{}{}".format(useremail,domain,path))
         return forbidden_response_factory(request)
-
-def get_absolute_url(url,domain):
-    """
-    Get a absolute http url
-    """
-    if url.startswith("http"):
-        #url is already an absolute url
-        return url
-
-    if url.startswith("/"):
-        #relative url in domain
-        return "https://{}{}".format(domain,url)
-    else:
-        #absoulte url without protocol
-        return "https://{}".format(url)
 
 def get_post_b2c_logout_url(request,encode=True):
     """
@@ -800,6 +792,8 @@ def auth_local(request):
             domain = utils.get_domain(next_url)
             if domain and not cache.check_clientdomain(domain):
                 return HttpResponseForbidden("Redirecting to '{}' is strictly forbidden.".format(next_url))
+
+            next_url = utils.get_absolute_url(next_url,request.get_host())
         else:
             domain = request.get_host()
             if domain == settings.AUTH2_DOMAIN:
@@ -1943,7 +1937,7 @@ def forbidden(request):
     can also be called from other view method
     Provide a consistent,customized forbidden page.
     """
-    url = get_absolute_url(request.GET.get("path") or request.get_full_path(),request.get_host())
+    url = utils.get_absolute_url(request.GET.get("path") or request.get_full_path(),request.get_host())
     parsed_url = utils.parse_url(url)
     domain = parsed_url["domain"]
     path = parsed_url["path"]
