@@ -740,6 +740,13 @@ if settings.TRAFFIC_MONITOR_LEVEL > 0:
                 _clean_traffic_data(data[key])
             else:
                 data[key] = 0
+
+    def _has_traffic_data(data):
+        for v in data.values():
+            if isinstance(v,dict) and v.get("requests",0):
+                return True
+
+        return False
         
     class _MemoryCacheWithTrafficMonitor(_BaseMemoryCache):
         def __init__(self):
@@ -762,13 +769,11 @@ if settings.TRAFFIC_MONITOR_LEVEL > 0:
         def traffic_data_key_pattern(self):
             return settings.GET_DEFAULT_CACHE_KEY("traffic-data-level{}-{}-{{}}".format(settings.TRAFFIC_MONITOR_LEVEL,settings.TRAFFIC_MONITOR_INTERVAL.seconds))
 
-        def _save_traffic_data(self,start):
+        def _save_traffic_data(self):
             data_starttime = utils.format_datetime(self._traffic_data_ts)
             data_endtime = utils.format_datetime(self._traffic_data_next_ts)
-            seconds = (start - self._traffic_data_next_ts).seconds
-            self._traffic_data_ts = self._traffic_data_next_ts + timedelta(seconds = seconds - seconds % settings.TRAFFIC_MONITOR_INTERVAL.seconds)
-            self._traffic_data_next_ts = self._traffic_data_ts + settings.TRAFFIC_MONITOR_INTERVAL
-            if self._traffic_data :
+
+            if self._traffic_data and _has_traffic_data(self._traffic_data):
                 self._traffic_data["starttime"] = data_starttime
                 self._traffic_data["endtime"] = data_endtime
                 traffic_data = json.dumps(self._traffic_data)
@@ -785,9 +790,16 @@ if settings.TRAFFIC_MONITOR_LEVEL > 0:
                     DebugLog.warning(DebugLog.ERROR,None,None,None,None,"Failed to save the traffic data to cache.{}".format(traceback.format_exc()))
                     pass
 
+                return True
+            else:
+                return False
+
         def _log_request_1(self,name,group,start,status_code,groupname="domains"):
             if start >= self._traffic_data_next_ts:
-                self._save_traffic_data(start)
+                self._save_traffic_data()
+                seconds = (start - self._traffic_data_next_ts).total_seconds()
+                self._traffic_data_ts = self._traffic_data_next_ts + timedelta(seconds = seconds - seconds % settings.TRAFFIC_MONITOR_INTERVAL.seconds)
+                self._traffic_data_next_ts = self._traffic_data_ts + settings.TRAFFIC_MONITOR_INTERVAL
     
             ptime = round((timezone.localtime() - start).total_seconds() * 1000,2)
             try:
@@ -830,7 +842,10 @@ if settings.TRAFFIC_MONITOR_LEVEL > 0:
 
         def _log_request_2(self,name,group,start,status_code,groupname="domains"):
             if start >= self._traffic_data_next_ts:
-                self._save_traffic_data(start)
+                self._save_traffic_data()
+                seconds = (start - self._traffic_data_next_ts).total_seconds()
+                self._traffic_data_ts = self._traffic_data_next_ts + timedelta(seconds = seconds - seconds % settings.TRAFFIC_MONITOR_INTERVAL.seconds)
+                self._traffic_data_next_ts = self._traffic_data_ts + settings.TRAFFIC_MONITOR_INTERVAL
     
             ptime = round((timezone.localtime() - start).total_seconds() * 1000,2)
             try:
@@ -880,7 +895,10 @@ if settings.TRAFFIC_MONITOR_LEVEL > 0:
 
         def _log_request_3(self,name,group,start,status_code,groupname="domains"):
             if start >= self._traffic_data_next_ts:
-                self._save_traffic_data(start)
+                self._save_traffic_data()
+                seconds = (start - self._traffic_data_next_ts).total_seconds()
+                self._traffic_data_ts = self._traffic_data_next_ts + timedelta(seconds = seconds - seconds % settings.TRAFFIC_MONITOR_INTERVAL.seconds)
+                self._traffic_data_next_ts = self._traffic_data_ts + settings.TRAFFIC_MONITOR_INTERVAL
     
             ptime = round((timezone.localtime() - start).total_seconds() * 1000,2)
             try:

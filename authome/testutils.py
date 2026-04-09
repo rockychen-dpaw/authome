@@ -61,7 +61,7 @@ class StartServerMixin(object):
 
         auth2_env = " && ".join("export {0}=\"{1}\"".format(k,(auth2_env or {}).get(k,cls.default_env.get(k))) for k,v in cls.default_env.items())
           
-        command = "/bin/bash -c 'set -a && export PORT={2} && source {0}/.env.{1} && {3} && poetry run python manage.py runserver 0.0.0.0:{2}'".format(settings.BASE_DIR,servername,port,auth2_env) 
+        command = "/bin/bash -c 'set -a && export PORT={2} && source {0}/.env.{1} && {3} && uv run python manage.py runserver 0.0.0.0:{2}'".format(settings.BASE_DIR,servername,port,auth2_env) 
         print("Start auth2 server({}):{}".format(servername,command))
         cls.process_map[servername] = (subprocess.Popen(command,shell=True,preexec_fn=os.setsid,stdout=subprocess.PIPE),port)
         expired = 60
@@ -76,7 +76,7 @@ class StartServerMixin(object):
                     #print("{} : Server({}) is not ready.{}".format(utils.format_datetime(timezone.localtime()),servername,str(ex)))
                     time.sleep(1)
                 else:
-                    raise("{} : Failed to start server({}).{}".format(utils.format_datetime(timezone.localtime()),servername,str(ex)))
+                    raise Exception("{} : Failed to start server({}).{}".format(utils.format_datetime(timezone.localtime()),servername,str(ex)))
                 
 
     @classmethod
@@ -115,18 +115,8 @@ class StartServerMixin(object):
         return url
 
     @classmethod
-    def get_auth_tcontrol_url(cls,servername="standalone"):
-        url =  "{}/test/sso/auth_tcontrol".format(cls.get_baseurl(servername))
-        return url
-
-    @classmethod
     def get_auth_optional_url(cls,servername="standalone"):
         url =  "{}/sso/auth_optional".format(cls.get_baseurl(servername))
-        return url
-
-    @classmethod
-    def get_auth_optional_tcontrol_url(cls,servername="standalone"):
-        url =  "{}/test/sso/auth_optional_tcontrol".format(cls.get_baseurl(servername))
         return url
 
     @classmethod
@@ -135,28 +125,17 @@ class StartServerMixin(object):
         return url
 
     @classmethod
-    def get_basicauth_tcontrol_url(cls,servername="standalone"):
-        url =  "{}/test/sso/auth_basic_tcontrol".format(cls.get_baseurl(servername))
-        return url
-
-    @classmethod
     def get_basicauth_optional_url(cls,servername="standalone"):
         url =  "{}/sso/auth_basic_optional".format(cls.get_baseurl(servername))
         return url
 
     @classmethod
-    def get_basicauth_optional_tcontrol_url(cls,servername="standalone"):
-        url =  "{}/test/sso/auth_basic_optional_tcontrol".format(cls.get_baseurl(servername))
-        return url
-
-    @classmethod
-    def get_clear_tcontroldata_url(cls,servername="standalone"):
-        url =  "{}/test/clear_tcontroldata".format(cls.get_baseurl(servername))
-        return url
-
-    @classmethod
     def get_login_user_url(cls,user,enabletoken=True,refreshtoken=False,servername="standalone"):
         return "{}/test/login_user?user={}&enabletoken={}&refreshtoken={}".format(cls.get_baseurl(servername),user,enabletoken,refreshtoken)
+
+    @classmethod
+    def get_delete_offline_clusters_url(cls,servername="standalone"):
+        return "{}/test/deleteofflineclusters".format(cls.get_baseurl(servername))
 
     @classmethod
     def get_logout_url(cls,servername="standalone"):
@@ -189,13 +168,6 @@ class StartServerMixin(object):
     @classmethod
     def get_refresh_modelcache_url(cls,modelname,servername="standalone"):
         return "{}/test/model/{}/refreshcache".format(cls.get_baseurl(servername),modelname)
-
-    @classmethod
-    def get_test_tcontrol_url(cls,tcontrol,client,clientip,exempt=False,debug=False,servername="standalone"):
-        if client:
-            return "{}/test/tcontrol?tcontrol={}&client={}&clientip={}&exempt={}&debug={}".format(cls.get_baseurl(servername),tcontrol,client,quote_plus(clientip),1 if exempt else 0,1 if debug else 0)
-        else:
-            return "{}/test/tcontrol?tcontrol={}&clientip={}&exempt={}&debug={}".format(cls.get_baseurl(servername),tcontrol,quote_plus(clientip),1 if exempt else 0,1 if debug else 0)
 
     def get_settings(self,names,servername="standalone"):
         """

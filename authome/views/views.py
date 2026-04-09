@@ -683,11 +683,11 @@ def _auth_basic(request,not_authentiated_response_factory=basic_auth_required_re
 
     #not found the cached reponse, not authenticated before.
     try:
-        user = load_user_by_email(useremail)
-        if request.user.is_authenticated and user.email == request.user.email:
+        if request.user.is_authenticated and useremail == request.user.email:
             #the user of the token auth is the same user as the authenticated session user;use the session authentication data directly
             return  _auth(request)
 
+        user = load_user_by_email(useremail)
         #user session is not authenticated or the user of the user token is not the same user as the authenticated sesion user.
         #check whther user token is valid
         if user.is_active and is_usertoken_valid(user,token):

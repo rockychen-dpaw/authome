@@ -291,7 +291,6 @@ def auth2_onlinestatus(request):
             #advance the indexlist
             for pos in poslist:
                 indexlist[pos] += 1
-            #print("***={}".format(onlinestatus[:2]))
             onlinestatus = [onlinestatus[1],None,[]]
 
     #format the datetime

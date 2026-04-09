@@ -82,13 +82,6 @@ urlpatterns = [
     path("favicon.ico",RedirectView.as_view(url="{}images/favicon.ico".format(settings.STATIC_URL)))
 ]
 
-if settings.TRAFFICCONTROL_ENABLED:
-    urlpatterns.append(path('sso/auth_tcontrol', traffic_monitor("auth&tcontrol",views.auth_tcontrol,False), name='auth_and_tcontrol'))
-    urlpatterns.append(path('sso/auth_optional_tcontrol', traffic_monitor("auth_optional&tcontrol",views.auth_optional_tcontrol,False), name='auth_optional_and_tcontrol'))
-    urlpatterns.append(path('sso/auth_basic_tcontrol', traffic_monitor("auth_basic&tcontrol",views.auth_basic_tcontrol,False), name='auth_basic_and_tcontrol'))
-    urlpatterns.append(path('sso/auth_basic_optional_tcontrol', traffic_monitor("auth_basic_optional&tcontrol",views.auth_basic_optional_tcontrol,False), name='auth_basic_optional_and_tcontrol'))
-    urlpatterns.append(path('sso/forbidden_tcontrol', views.forbidden_tcontrol, name='forbidden_tcontrol'))
-
 
 if settings.DEBUG:
     #import debug_toolbar

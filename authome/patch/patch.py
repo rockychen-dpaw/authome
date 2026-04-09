@@ -88,24 +88,49 @@ if settings.USER_CACHE_ALIAS:
             #try to get user data from user cache
             userkey = settings.GET_USEREMAIL_KEY(useremail)
             usercache = get_usercache_by_email(useremail)
+            userid = None
             
             performance.start_processingstep("get_user_by_email_from_cache")
             try:
-                user = usercache.get(userkey)
+                #find the userid
+                userid = usercache.get(userkey)
             except:
                 DebugLog.warning(DebugLog.ERROR,None,None,None,None,"Failed to load the user by email from cache .{}".format(traceback.format_exc()))
             finally:
                 performance.end_processingstep("get_user_by_email_from_cache")
                 pass
 
-            if not user:
-                #Can't find the user in user cache, retrieve it from database
-                performance.start_processingstep("fetch_user_by_email_from_db")
+            if userid:
                 try:
-                    user = User.objects.get(email__iexact=useremail)
-                finally:
-                    performance.end_processingstep("fetch_user_by_email_from_db")
+                    user = load_user(userid)
+                except:
                     pass
+
+                if user and user.email == useremail:
+                    #user loaded, return
+                    return user
+
+            #Can't find the user in user cache, retrieve it from database
+            performance.start_processingstep("fetch_user_by_email_from_db")
+            try:
+                user = User.objects.get(email__iexact=useremail)
+            finally:
+                performance.end_processingstep("fetch_user_by_email_from_db")
+                pass
+            #cache the user object into user cache
+            performance.start_processingstep("set_useremail_to_cache")
+            try:
+                usercache.set(userkey,user.id,settings.STAFFEMAIL_CACHE_TIMEOUT if user.is_staff else settings.USEREMAIL_CACHE_TIMEOUT)
+            except:
+                DebugLog.warning(DebugLog.ERROR,None,None,None,None,"Failed to set the user to cache .{}".format(traceback.format_exc()))
+            finally:
+                performance.end_processingstep("set_useremail_to_cache")
+                pass
+
+            if userid and userid == user.id:
+                #user is not catched, cached.
+                userkey = settings.GET_USER_KEY(userid)
+                usercache = get_usercache(userid)
                 #cache the user object into user cache
                 performance.start_processingstep("set_user_to_cache")
                 try:
@@ -115,7 +140,6 @@ if settings.USER_CACHE_ALIAS:
                 finally:
                     performance.end_processingstep("set_user_to_cache")
                     pass
-
         except KeyError:
             pass
         except ObjectDoesNotExist as ex:

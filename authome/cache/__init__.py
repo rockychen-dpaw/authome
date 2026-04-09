@@ -8,9 +8,6 @@ from .cache import get_usercache,get_usercache_by_email,get_defaultcache,default
 if settings.AUTH2_CLUSTERID:
     from .clustercache import MemoryCache
     cache = MemoryCache()
-elif settings.TRAFFICCONTROL_ENABLED:
-    from .tcontrolcache import MemoryCache
-    cache = MemoryCache()
 else:
     from .cache import MemoryCache
     cache = MemoryCache()

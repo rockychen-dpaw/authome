@@ -66,8 +66,13 @@ class UserEmailTestCase(BaseTestCase):
             ("#anchor",(None,"#anchor")),
             ("#anchor?",(None,"#anchor?")),
             ("#anchor?a=1",(None,"#anchor?a=1")),
-            ("htt://example.com",("example.com",None)),
-            ("httpa://example.com",("example.com",None))
+            ("//example.com",("example.com","")),
+            ("/////example.com",("example.com","")),
+            ("://///example.com",("example.com","")),
+            (":/example.com",("example.com","")),
+            ("ht:////example.com",("example.com","")),
+            ("htt://example.com",("example.com","")),
+            ("httpa://example.com",("example.com",""))
         ]
         for url, result in testcases:
             r = utils.get_domain_path(url)
