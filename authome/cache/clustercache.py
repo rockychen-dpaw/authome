@@ -584,7 +584,7 @@ class MemoryCache(BaseMemoryCache):
     def status(self):
         result = super().status
         result["Auth2Clusters"] = {
-            "auth2_clusters":None if self._auth2_clusters else ["{}={}({})".format(o.clusterid,o.endpoint,utils.utils.format_datetime(o.last_heartbeat)) for o in self._auth2_clusters.values()],
+            "auth2_clusters":["{}={}({})".format(o.clusterid,o.endpoint,utils.utils.format_datetime(o.last_heartbeat)) for o in self._auth2_clusters.values()] if self._auth2_clusters else None,
             "latest_refresh_time":utils.format_datetime( self._auth2_clusters_ts),
             "next_check_time":utils.format_datetime(self._auth2_clusters_check_time.next_runtime)
         }
