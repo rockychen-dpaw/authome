@@ -557,6 +557,9 @@ def GET_CACHE_CONF(cacheid,server,options={},key_function=KEY_FUNCTION):
             cluster = is_cluster(server)
 
         if cluster:
+            #Only use primary node for read & write
+            options["read_from_replicas"] = False
+            options["load_balancing_strategy"] = None
             if "require_full_coverage" not in options:
                 options["require_full_coverage"] = False
             return {
@@ -680,6 +683,9 @@ else:
 SSL_VERIFY=env("SSL_VERIFY",default=True)
 
 SOCIAL_AUTH_ADMIN_SEARCH_FIELDS=["uid"]
+
+REDISCLUSTER_FAILOVER_CHECK_TIMES = env('REDISCLUSTER_FAILOVER_CHECK_TIMES',default=10) #How many times to check whether the failover process is completed before raising exception
+REDISCLUSTER_FAILOVER_CHECK_INTERVAL = env('REDISCLUSTER_FAILOVER_CHECK_INTERVAL',default=200) / 1000.0#milliseconds, the interval to check whether the failover process is completed or not
 
 # Sentry settings
 project = tomllib.load(open(os.path.join(BASE_DIR, "pyproject.toml"), "rb"))

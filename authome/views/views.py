@@ -791,7 +791,7 @@ def auth_local(request):
         if next_url:
             domain = utils.get_domain(next_url)
             if domain and not cache.check_clientdomain(domain):
-                return HttpResponseForbidden("Redirecting to '{}' is strictly forbidden.".format(next_url))
+                return HttpResponseForbidden("Redirecting to '{}' is strictly forbidden.".format(urllib.parse.quote(next_url)))
 
             next_url = utils.get_absolute_url(next_url,request.get_host())
         else:
@@ -1166,7 +1166,7 @@ def check_captcha(request,kind=settings.CAPTCHA_DEFAULT_KIND,auth=False):
         if next_url:
             domain = utils.get_domain(next_url)
             if domain and not cache.check_clientdomain(domain):
-                return HttpResponseForbidden("Redirecting to '{}' is strictly forbidden.".format(next_url))
+                return HttpResponseForbidden("Redirecting to '{}' is strictly forbidden.".format(urllib.parse.quote(next_url)))
         else:
             domain = request.get_host()
             if domain == settings.AUTH2_DOMAIN:

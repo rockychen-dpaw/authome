@@ -3,6 +3,7 @@ import traceback
 import json
 from datetime import datetime, timedelta
 from collections import OrderedDict
+import urllib.parse
 
 from django.conf import settings
 from django.utils import timezone
@@ -235,7 +236,7 @@ class _BaseMemoryCache(object):
             self._clientdomains.add(domain)
             return True
         elif settings.RAISE_EXCEPTION_4_INVALID_DOMAIN:
-            raise InvalidDomainException("Redirect to '{}' is strictly forbidden.".format(domain))
+            raise InvalidDomainException("Redirect to '{}' is strictly forbidden.".format(urllib.parse.quote(domain)))
         else:
             return False
 
