@@ -141,7 +141,7 @@ class RedisClusterFailoverTestCase(testutils.RedisClusterTestCaseMixin,TestCase)
     
                     for data in groupdata:
                         val = int(cls._redis_client.get(data[0]).decode())
-                        self.assertEqual(data[1],val,msg="The data({1}) returned from the new master node is the expected data({0})".format(data[1],val))
+                        self.assertEqual(data[1],val,msg="The data({1}) returned from the new master node is not the expected data({0})".format(data[1],val))
             
         finally:
             print("Restore the testing environment")
