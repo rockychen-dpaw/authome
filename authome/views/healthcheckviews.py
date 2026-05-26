@@ -259,7 +259,6 @@ def auth2_onlinestatus(request):
         while any(indexlist[pos] < len(clusteronlinestatuslist[pos]) for pos in range(length)):
             #find the online_endtime and populate the serverlist
             for pos in range(length):
-                #print("{}: pos={}, index={},length={}".format(onlinestatus[:2],pos,indexlist[pos],len(clusteronlinestatuslist[pos])))
                 clusteronlinestatus = clusteronlinestatuslist[pos][indexlist[pos]]
                 if clusteronlinestatus[0] <= onlinestatus[0]:
                     #this clusteronlinestatus includes the time "oneline_begintime"
