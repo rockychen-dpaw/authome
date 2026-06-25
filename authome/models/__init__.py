@@ -46,4 +46,3 @@ def initialize():
     except:
         if not settings.IGNORE_LOADING_ERROR:
             raise Exception("Failed to load CustomizableUserflow cache during server starting.{}".format(traceback.format_exc()))
-    

@@ -21,4 +21,3 @@ if settings.TESTMODE:
     urlpatterns.append(path('test/',include((testurls.urlpatterns,'test'),namespace="test")))
     logger.info("Start auth2 in testing mode")
 
-models.initialize()
