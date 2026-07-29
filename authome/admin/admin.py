@@ -146,6 +146,7 @@ class DatetimeMixin(object):
         else:
             return timezone.localtime(obj.last_login).strftime("%Y-%m-%d %H:%M:%S")
     _last_login.short_description = "Last Login"
+    _last_login.admin_order_field = "last_login"
 
     def _date_joined(self,obj):
         if not obj or not obj.date_joined :
@@ -393,6 +394,12 @@ class UserGroupAdmin(PermissionCheckMixin,CacheableListTitleMixin,DatetimeMixin,
                 return result
     _session_timeout.short_description = "Session Timeout"
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "parent_group":
+            # Sort the Author selector alphabetically by 'name'
+            kwargs["queryset"] = models.UserGroup.objects.order_by('name')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 class UserGroupAuthorizationAdmin(PermissionCheckMixin,CacheableListTitleMixin,DatetimeMixin,CatchModelExceptionMixin,djangoadmin.ModelAdmin):
     list_display = ('usergroup','domain','paths','excluded_paths','_modified','_created')
     readonly_fields = ('_modified',)
@@ -414,6 +421,12 @@ class UserGroupAuthorizationAdmin(PermissionCheckMixin,CacheableListTitleMixin,D
             return ('_modified','usergroup')
         else:
             return ('_modified','usergroup','domain')
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "usergroup":
+            # Sort the Author selector alphabetically by 'name'
+            kwargs["queryset"] = models.UserGroup.objects.order_by('name')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 class UserAuthorizationAdmin(CacheableListTitleMixin,DatetimeMixin,CatchModelExceptionMixin,djangoadmin.ModelAdmin):
