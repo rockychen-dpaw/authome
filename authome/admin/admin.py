@@ -362,12 +362,38 @@ class SystemUserAdmin(PermissionCheckMixin,DbcaAccountMixin,UserGroupsMixin,Date
             return obj.email
     _email.short_description = "Email"
 
+class ParentUserGroupFilter(djangoadmin.SimpleListFilter):
+    # The sidebar title displayed above the filter items
+    title = 'Parent Group' 
+    
+    # The URL query parameter used when filtering
+    parameter_name = 'parent_group_id' 
+
+    def lookups(self, request, model_admin):
+        """
+        Returns a sorted list of tuples. 
+        """
+        # find all ids for parent group
+        parentgroups = models.UserGroup.objects.filter(parent_group__isnull=False).order_by("parent_group_id").distinct("parent_group_id").values_list("parent_group_id",flat=True)
+        
+        # Return a list of tuples: (database_value, readable_string)
+        return [(g.id, g.name) for g in models.UserGroup.objects.filter(id__in=parentgroups).order_by("name")]
+
+    def queryset(self, request, queryset):
+        """
+        Filters the primary model's queryset based on the selected value.
+        """
+        if self.value():
+            return queryset.filter(parent_group_id=self.value())
+        return queryset
+
+
 class UserGroupAdmin(PermissionCheckMixin,CacheableListTitleMixin,DatetimeMixin,CatchModelExceptionMixin,djangoadmin.ModelAdmin):
     list_display = ('name','groupid','parent_group','users','excluded_users','identity_provider','_session_timeout','_modified','_created')
     fields = ('name','groupid','parent_group','users','excluded_users','identity_provider','session_timeout','_modified')
     ordering = ('parent_group','name',)
     search_fields=("name",)
-    list_filter = ['parent_group']
+    list_filter = [ParentUserGroupFilter]
     form = forms.UserGroupForm
 
     model = models.UserGroup
