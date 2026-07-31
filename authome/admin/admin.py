@@ -405,7 +405,7 @@ class UserGroupAuthorizationAdmin(PermissionCheckMixin,CacheableListTitleMixin,D
     readonly_fields = ('_modified',)
     fields = ('usergroup','domain','paths','excluded_paths','_modified')
     ordering = ('usergroup',models.sortkey_c.asc())
-    search_fields=("domain",)
+    search_fields=("domain","usergroup__name")
     list_filter = ['usergroup']
     form = forms.UserGroupAuthorizationForm
 
