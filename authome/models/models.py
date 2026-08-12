@@ -2080,7 +2080,7 @@ if defaultcache:
             try:
                 defaultcache.set(cls.key,timezone.localtime(),timeout=timeout)
             except Exception as ex:
-                DebugLog.warning(DebugLog.ERROR,None,None,None,None,"Failed to set the latest change time of the model '{}' to cache.{}".format(cls.__name__,traceback.format_exc(ex)))
+                DebugLog.warning(DebugLog.ERROR,None,None,None,None,"Failed to set the latest change time of the model '{}' to cache.{}".format(cls.__name__,traceback.format_exc()))
 
         @classmethod
         def get_cachetime(cls):
