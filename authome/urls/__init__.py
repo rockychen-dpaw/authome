@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.urls import include, path
+import sys
 
 import authome.patch
 from .. import models
@@ -21,4 +22,3 @@ if settings.TESTMODE:
     urlpatterns.append(path('test/',include((testurls.urlpatterns,'test'),namespace="test")))
     logger.info("Start auth2 in testing mode")
 
-models.initialize()

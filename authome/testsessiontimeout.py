@@ -32,15 +32,18 @@ class UserSessionTimeoutTestCase(testutils.StartServerMixin,BaseTestCase):
             sessionage = 36000
             self.start_auth2_server("auth01",18060,auth2_env={"SESSION_AGE":sessionage},start=True)
             for user in ["test1@dbca.wa.gov.au","test@test11.com"]:
-                usergroups = models.UserGroup.find_groups(user)[0]
-                timeout = models.UserGroup.get_session_timeout(usergroups) or 0
-                print("=============================user={} , timeout = {}====================".format(user,timeout))
+                res = requests.get("{}?user={}".format(self.get_sessiontimeout_url(servername="auth01"),user),headers=self.cluster_headers,verify=settings.SSL_VERIFY)
+                res.raise_for_status()
+                res = res.json()
+                usergroups = res["usergroups"]
+                timeout = res["sessiontimeout"] or 0
+                print("=============================user={} , timeout = {}, usergroups = {} ===================".format(user,timeout,usergroups))
                 before_login = timezone.localtime()
                 res = requests.get(self.get_login_user_url(user,servername="auth01"),headers=self.cluster_headers,verify=settings.SSL_VERIFY)
                 after_login = timezone.localtime()
                 res.raise_for_status()
                 session_cookie = self.unquotedcookie(res.cookies[settings.SESSION_COOKIE_NAME])
-                time.sleep(5)
+                self.sleep(5)
                 sessiondata,ttl1 = self.get_session_data(session_cookie,"auth01",exist=True)
                 if timeout:
                     minttl = int((before_login  + timedelta(seconds=timeout)- timezone.localtime()).total_seconds())
@@ -48,7 +51,7 @@ class UserSessionTimeoutTestCase(testutils.StartServerMixin,BaseTestCase):
                     minttl = int((before_login  + timedelta(seconds=sessionage)- timezone.localtime()).total_seconds())
                 self.assertTrue(ttl1 >= minttl,"The ttl({1}) of the user({0}) should be greater than {2}".format(user,ttl1,minttl))
 
-                time.sleep(5)
+                self.sleep(5)
                 before_profile = timezone.localtime()
                 res = requests.get(self.get_profile_url(servername="auth01"),headers=self.cluster_headers,cookies={settings.SESSION_COOKIE_NAME:session_cookie},verify=settings.SSL_VERIFY)
                 after_profile = timezone.localtime()

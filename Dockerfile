@@ -1,15 +1,30 @@
 # syntax=docker/dockerfile:1
 # Prepare the base environment.
 FROM dhi.io/python:3.12-debian13-dev AS build-stage
+ARG GCC_RUNTIME_VERSION=14.2.0-19+deb13u0+dhi9
 #FROM python:3.12.10-slim-bookworm AS build-stage
-RUN apt-get update -y \
-  && apt-get install -y passwd wget gcc libpq-dev procps\
-  && rm -rf /var/lib/apt/lists/* \
-  && pip install --upgrade pip
+
+RUN <<EOF
+set -euxo pipefail
+apt-get update -y
+
+# Install the aligned GCC runtime family and dependent packages
+# in one transaction so APT cannot retain incompatible DHI revisions.
+apt-get install -y --allow-downgrades --no-install-recommends \
+  gcc-14-base="${GCC_RUNTIME_VERSION}" \
+  libgcc-s1="${GCC_RUNTIME_VERSION}" \
+  libstdc++6="${GCC_RUNTIME_VERSION}" \
+  libgfortran5="${GCC_RUNTIME_VERSION}" \
+  gcc \
+  passwd \
+  libpq-dev \
+EOF
+
+
 
 # uv install
 # grab /uvx too if you need it
-COPY --from=ghcr.io/astral-sh/uv:0.11.1 /uv /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /bin/
 
 #update permissoins
 #RUN chmod 755 /etc
@@ -33,7 +48,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 COPY fonts ./fonts
 
 WORKDIR /app/release
-COPY manage.py gunicorn_sync.py gunicorn_eventlet.py gunicorn_gevent.py testperformance testrequestheaders testrediscluster testperformance pyproject.toml captchautil.py ./
+COPY manage.py basegunicorn.py gunicorn_sync.py gunicorn_eventlet.py gunicorn_gevent.py testperformance testrequestheaders testrediscluster testperformance pyproject.toml captchautil.py ./
 COPY authome ./authome
 COPY templates ./templates
 RUN export IGNORE_LOADING_ERROR=True ; python manage.py collectstatic --noinput --no-post-process
@@ -64,9 +79,7 @@ FROM dhi.io/python:3.12-debian13-dev AS runtime-stage
 LABEL org.opencontainers.image.authors=asi@dbca.wa.gov.au
 LABEL org.opencontainers.image.source=https://github.com/dbca-wa/authome
 
-RUN apt-get update -y \
-  && apt-get install -y wget libpq-dev procps\
-  && rm -rf /var/lib/apt/lists/* 
+RUN pip install --upgrade pip
 
 # Copy the user & usergroup
 COPY --from=build-stage /etc/group /etc/

@@ -190,7 +190,7 @@ class ClusterSessionMiddleware(SessionMiddleware):
         try:
             session_cookie = request.COOKIES.get(settings.SESSION_COOKIE_NAME)
             nginx_lb_hash_key = request.headers.get("X-lb-hash-key")
-            if not nginx_lb_hash_key and not request.path.startswith("/cluster") and request.path != "/ping":
+            if not nginx_lb_hash_key and not request.path.startswith("/cluster") and request.path != "/ping" and not request.path.startswith("/workload/"):
                 return LB_HASH_KEY_MISSING_RESPONSE
             DebugLog.attach_request(request)
             cookie_domain = None
@@ -229,7 +229,6 @@ class ClusterSessionMiddleware(SessionMiddleware):
                             DebugLog.warning(DebugLog.DOMAIN_NOT_MATCH,nginx_lb_hash_key,auth2_clusterid,session_key,session_cookie,message="The domain({1}) of the session cookie({0}) does not match the required domain({2}) . request={3}, cookies={4}".format(session_cookie,cookie_domain,self.SessionStore.get_cookie_domain(request),"{}{}".format(request.get_host(),request.path_info),request.headers.get("cookie")),request=request)
                             return
                         elif nginx_lb_hash_key != lb_hash_key:
-                            print("{} : {} != {}".format(session_cookie,nginx_lb_hash_key,lb_hash_key))
                             #load balance hash key does not match the lb hash key in session cookie, or cookie domain does not match the required domain
                             #this is a abnormal scenario, logout and let user login again
                             request.session = self.SessionStore(nginx_lb_hash_key,None,None,request=request,cookie_domain=cookie_domain)

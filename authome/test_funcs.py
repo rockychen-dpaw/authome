@@ -81,7 +81,7 @@ class UserEmailTestCase(BaseTestCase):
                 
     def test_redis_re(self):
         print("============================================================================")
-        from .redis import redis_re
+        from .redis.base import redis_re
         testcases = [
             ("redis://admin:12345@localhost:6379/1",{"protocol":"redis","user":"admin","password":"12345","host":"localhost","port":"6379","db":"1"}),
             ("  redis://admin:12345@localhost:6379/1  ",{"protocol":"redis","user":"admin","password":"12345","host":"localhost","port":"6379","db":"1"}),

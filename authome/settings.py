@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'social_django',
     'authome',
+    'dbca_utils'
 ]
 
 AUTHENTICATION_BACKENDS = (
@@ -71,6 +72,9 @@ AUTH2_DOMAIN = env("AUTH2_DOMAIN",default="auth2.dbca.wa.gov.au")
 AUTH2_MONITORING_DIR=env("AUTH2_MONITORING_DIR")
 AUTH2_MONITOR_EXPIREDAYS=env("AUTH2_MONITOR_EXPIREDAYS",default=10)
 
+
+GROUP_SEPARATOR = env("GROUP_SEPARATOR",default=",")
+NEW_GROUP_SEPARATOR = env("NEW_GROUP_SEPARATOR")
 
 CAPTCHA_CHARS_IMAGE = env("CAPTCHA_CHARS_IMAGE",default="34689ABDEFGHJKLMNPQRTWXY")
 CAPTCHA_CHARS_AUDIO = env("CAPTCHA_CHARS_AUDIO",default="0123456789")
@@ -292,7 +296,7 @@ GROUPS_AUTHORIZATION_CACHE_SIZE=env("GROUPS_AUTHORIZATION_CACHE_SIZE",default=20
 if GROUPS_AUTHORIZATION_CACHE_SIZE <= 0:
     GROUPS_AUTHORIZATION_CACHE_SIZE = 2000
 
-AUTH_BASIC_CACHE_EXPIRETIME=env('AUTH_BASIC_CACHE_EXPIRETIME',default=3600) #user access token life time in seconds
+AUTH_BASIC_CACHE_EXPIRETIME=env('AUTH_BASIC_CACHE_EXPIRETIME',default=3600) #basic auth cache time in seconds
 if AUTH_BASIC_CACHE_EXPIRETIME > 0:
     AUTH_BASIC_CACHE_EXPIRETIME = timedelta(seconds=AUTH_BASIC_CACHE_EXPIRETIME)
 else:
@@ -389,6 +393,10 @@ LOGGING = {
             'handlers': ['console'],
             'level': LOGLEVEL,
         },
+        'healthcheck': {
+            'handlers': ['console'],
+            'level': LOGLEVEL,
+        }
     }
 }
 
@@ -501,6 +509,7 @@ else:
 
 if REDIS_TRAFFIC_MONITOR_LEVEL > 0:
     import redis
+    import logging
     class MonitorEnabledConnection(redis.Connection):
         _cache = None
         def send_command(self, *args, **kwargs):
@@ -557,6 +566,9 @@ def GET_CACHE_CONF(cacheid,server,options={},key_function=KEY_FUNCTION):
             cluster = is_cluster(server)
 
         if cluster:
+            #Only use primary node for read & write
+            options["read_from_replicas"] = False
+            options["load_balancing_strategy"] = None
             if "require_full_coverage" not in options:
                 options["require_full_coverage"] = False
             return {
@@ -564,7 +576,8 @@ def GET_CACHE_CONF(cacheid,server,options={},key_function=KEY_FUNCTION):
                 "KEY_FUNCTION":key_function,
                 "LOCATION": server,
                 "CACHEID" : cacheid,
-                "OPTIONS": options
+                "OPTIONS": options,
+                "TIMEOUT": None
             }
         else:
             return {
@@ -572,14 +585,16 @@ def GET_CACHE_CONF(cacheid,server,options={},key_function=KEY_FUNCTION):
                 "KEY_FUNCTION":key_function,
                 "LOCATION": server,
                 "CACHEID" : cacheid,
-                "OPTIONS": options
+                "OPTIONS": options,
+                "TIMEOUT": None
             }
     else:
         return {
             'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache',
             "KEY_FUNCTION":key_function,
             'LOCATION': server,
-            "OPTIONS": options
+            "OPTIONS": options,
+            "TIMEOUT": None
         }
 
 if CACHE_SERVER or CACHE_SESSION_SERVER or CACHE_USER_SERVER:
@@ -680,6 +695,9 @@ else:
 SSL_VERIFY=env("SSL_VERIFY",default=True)
 
 SOCIAL_AUTH_ADMIN_SEARCH_FIELDS=["uid"]
+
+REDISCLUSTER_FAILOVER_CHECK_TIMES = env('REDISCLUSTER_FAILOVER_CHECK_TIMES',default=10) #How many times to check whether the failover process is completed before raising exception
+REDISCLUSTER_FAILOVER_CHECK_INTERVAL = env('REDISCLUSTER_FAILOVER_CHECK_INTERVAL',default=200) / 1000.0#milliseconds, the interval to check whether the failover process is completed or not
 
 # Sentry settings
 project = tomllib.load(open(os.path.join(BASE_DIR, "pyproject.toml"), "rb"))

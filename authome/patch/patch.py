@@ -128,7 +128,7 @@ if settings.USER_CACHE_ALIAS:
                 pass
 
             if userid and userid == user.id:
-                #user is not catched, cached.
+                #user is not catched or cached data is outdated, cache it
                 userkey = settings.GET_USER_KEY(userid)
                 usercache = get_usercache(userid)
                 #cache the user object into user cache
@@ -305,7 +305,7 @@ def get_response_for_exception():
                 utils.get_source_session_key(request),
                 utils.get_source_session_cookie(request),
                 useremail=useremail,
-                message="Failed to process request.{}".format("\n".join(traceback.format_exception(type(exc),exc,exc.__traceback__)))
+                message="Failed to process the request({}).{}".format(request.path,"\n".join(traceback.format_exception(type(exc),exc,exc.__traceback__)))
             )
             
             return original_handler(request,exc)
